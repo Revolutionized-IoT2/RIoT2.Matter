@@ -24,6 +24,8 @@ from the keyboard — while any commissioned Matter controller (Apple Home, Goog
 - [How it works](#how-it-works)
 - [Commissioning to a controller](#commissioning-to-a-controller)
 - [Device attestation credentials](#device-attestation-credentials)
+- [Setting up device attestation credentials](#setting-up-device-attestation-credentials)
+- [Getting credentials from connectedhomeip](#getting-credentials-from-connectedhomeip)
 - [Project layout](#project-layout)
 - [Troubleshooting](#troubleshooting)
 - [Related](#related)
@@ -233,31 +235,50 @@ credentials/
 ### Recommended: connectedhomeip test credentials (no `chip-cert`)
 
 To be accepted by **test-mode commissioners** (`chip-tool`, Home Assistant), drop the `connectedhomeip`
-test files (`credentials/test/…`) into `credentials/`. This node advertises **VID `0xFFF1` / PID
-`0x8000` / device-type `0x0100`**, so use the matching `FFF1-8000` set:
+test files (`credentials/test/…`) into `credentials/`. This node advertises **VID `0xFFF2` / PID
+`0x8001` / device-type `0x0100`**, so use the matching `FFF2-8001` set:
 
 | Copy from `connectedhomeip/credentials/test/…`             | Into `credentials/` as  |
 | ---------------------------------------------------------- | ----------------------- |
-| `attestation/Chip-Test-DAC-FFF1-8000-0000-Cert.der`        | `dac.der`               |
-| `attestation/Chip-Test-PAI-FFF1-8000-Cert.der`             | `pai.der`               |
-| `attestation/Chip-Test-DAC-FFF1-8000-0000-Key.pem`         | `dac-key.pem`           |
+| `attestation/Chip-Test-DAC-FFF2-8001-0008-Cert.der`        | `dac.der`               |
+| `attestation/Chip-Test-PAI-FFF2-8001-Cert.der`             | `pai.der`               |
+| `attestation/Chip-Test-DAC-FFF2-8001-0008-Key.pem`         | `dac-key.pem`           |
 | `certification-declaration/Chip-Test-CD-Signing-Cert.pem`  | `cd-signing-cert.pem`   |
 | `certification-declaration/Chip-Test-CD-Signing-Key.pem`   | `cd-signing-key.pem`    |
 
-On the next run the sample keeps your dropped-in chain and **auto-generates `cd.der`** — signed with
-the supplied CD-signing key so its `SubjectKeyIdentifier` matches the well-known test key that
-commissioners trust. No `chip-cert`, WSL, or Docker required.
+Notes:
 
-> The original `Chip-Test-CD-Signing-*.pem` filenames are also accepted as-is. Provide the DAC, PAI,
-> and DAC key **together** — a partial chain makes the sample fall back to regenerating self-signed
-> material. Delete the `credentials/` folder to start over.
+- The loader accepts **both PEM and DER**, so copy whichever form upstream ships and use the matching
+  target extension (`dac.der`/`dac.pem`, `pai.der`/`pai.pem`). Convert with
+  `chip-cert convert-cert <in>.pem <out>.der --x509-der` if you need a specific form.
+- The DAC certificate and DAC key **must be the same pair** — match the `-0000-` suffix between
+  `…-Cert` and `…-Key`.
+- The CD-signing cert/key are what let the sample regenerate a **CD** whose SubjectKeyIdentifier is the
+  well-known test key that test-mode commissioners trust.
 
-### Retail ecosystems (Alexa, Google Home, Apple Home)
+### Regenerate the CD after copying
 
-The test credentials above satisfy **development** commissioners only. A **retail** controller trusts
-only the production DCL PAAs and the production CSA CD-signing certificate, so it will still reject
-this material. Commissioning to a production ecosystem requires that vendor's Matter **developer
-enrollment**, or a **CSA-issued VID** with a **production DAC/PAI + CD**.
+`SampleAttestation` only regenerates `credentials/cd.der` when it is **absent**. After copying the
+CD-signing files, delete any stale `credentials/cd.der` (and `cd.pem`) so a fresh CD is minted for the
+current VID/PID and signed with the test CD-signing key. Alternatively, copy the prebuilt
+`certification-declaration/Chip-Test-CD-<VID>-<PID>.der` → `cd.der`.
+
+### Availability caveat
+
+Upstream ships prebuilt DAC/PAI/CD only for **specific test VID/PID pairs** (for example `FFF1-8000`).
+The sample currently advertises **`FFF2-8001`**, for which there are no upstream files. For a pair
+without upstream credentials, either:
+
+- switch the sample back to a pair that upstream provides (e.g. `FFF1-8000`) in `Program.cs` and
+  `SampleAttestation.cs` before copying, or
+- let `SampleAttestation` **auto-generate** its self-signed test chain for `FFF2-8001` (the default
+  when no device chain is present) — no connectedhomeip files needed.
+
+### Not for Google Home
+
+These are CSA **test** credentials. Real Google Home requires a Google-validated **real** VID, so the
+connectedhomeip test material (any `FFFx` pair) will be rejected during attestation. Use `chip-cert`
+with your real VID/PID for that path.
 
 ## Project layout
 

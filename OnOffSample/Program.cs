@@ -35,8 +35,8 @@ internal static class Program
         {
             Information = new DeviceInformation
             {
-                VendorId = new VendorId(0xFFF1),      // CSA test vendor id
-                ProductId = 0x8000,                   // matches the connectedhomeip FFF1-8000 test DAC/PAI/CD
+                VendorId = new VendorId(0xFFF2),      // CSA test vendor id
+                ProductId = 0x8001,                   // matches the connectedhomeip FFF2-8001 test DAC/PAI/CD
                 VendorName = "RIoT2",
                 ProductName = "Demo On/Off Light",
                 SoftwareVersion = 1,
