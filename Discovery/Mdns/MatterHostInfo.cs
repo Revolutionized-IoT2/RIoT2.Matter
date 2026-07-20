@@ -12,10 +12,10 @@ namespace RIoT2.Matter.Discovery.Mdns;
 /// </summary>
 public sealed record MatterHostInfo
 {
-    /// <summary>The operational host name (e.g. <c>&lt;64-bit host id&gt;.local</c>) shared by all SRV/AAAA records.</summary>
+    /// <summary>The operational host name (e.g. <c>&lt;64-bit host id&gt;.local</c>) shared by all SRV address records.</summary>
     public required DnsName HostName { get; init; }
 
-    /// <summary>The node's IPv6 addresses, emitted as the host's AAAA records.</summary>
+    /// <summary>The node's IP addresses, emitted as the host's AAAA (IPv6) and A (IPv4) records.</summary>
     public required IReadOnlyList<IPAddress> Addresses { get; init; }
 
     /// <summary>The UDP port the node listens on (5540 for operational Matter).</summary>

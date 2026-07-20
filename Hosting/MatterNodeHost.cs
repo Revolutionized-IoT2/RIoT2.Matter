@@ -46,8 +46,9 @@ public sealed class MatterNodeHost : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
 
     // A stable 64-bit operational host id (formatted as <id>.local); constant for the node's lifetime
-    // so the AAAA host name is consistent across every announce/goodbye.
-    private readonly ulong _hostId = (ulong)Random.Shared.NextInt64();
+    // so the AAAA/A host name is consistent across every announce/goodbye. A caller may supply a
+    // deterministic value (e.g. derived from the serial number) so the host name also survives restarts.
+    private readonly ulong _hostId;
 
     private HandshakeSessionInstaller? _installer;
     private CommissioningPaseResponder? _paseResponder;
@@ -69,18 +70,25 @@ public sealed class MatterNodeHost : IAsyncDisposable
     /// The duration of the initial factory commissioning window a not-yet-commissioned node auto-opens;
     /// the spec's default maximum is 900 seconds (15 minutes).
     /// </param>
+    /// <param name="hostId">
+    /// The 64-bit operational host id forming the <c>&lt;id&gt;.local</c> host name. Supply a stable,
+    /// device-bound value (e.g. derived from the serial number) so the host name is constant across
+    /// restarts; when null a random id is generated for the process lifetime.
+    /// </param>
     public MatterNodeHost(
         MatterNode node,
         CommissioningSupport commissioning,
         PaseProvisioning provisioning,
         CommissionableServiceInfo commissionable,
-        ushort commissioningWindowSeconds = 900)
+        ushort commissioningWindowSeconds = 900,
+        ulong? hostId = null)
     {
         _node = node ?? throw new ArgumentNullException(nameof(node));
         _commissioning = commissioning ?? throw new ArgumentNullException(nameof(commissioning));
         _provisioning = provisioning ?? throw new ArgumentNullException(nameof(provisioning));
         _commissionable = commissionable ?? throw new ArgumentNullException(nameof(commissionable));
         _commissioningWindowSeconds = commissioningWindowSeconds;
+        _hostId = hostId ?? (ulong)Random.Shared.NextInt64();
 
         // The inbound counterpart to the secure send path: resolves/decrypts each datagram to a
         // session and routes the decoded message into the exchange layer. The diagnostic callback
@@ -225,11 +233,15 @@ public sealed class MatterNodeHost : IAsyncDisposable
     private async ValueTask StartAdvertisingAsync(CancellationToken cancellationToken)
     {
         // Node-wide host facts shared by every advertised service: a stable operational host name, the
-        // node's IPv6 addresses, and the operational UDP port.
+        // node's IP addresses (IPv6 AAAA + IPv4 A records), and the operational UDP port. Advertising the
+        // IPv4 addresses too lets IPv4-only commissioners resolve the host on IPv6-ULA-only LANs.
+        var addresses = new List<IPAddress>(HostAddresses.GetIpv6());
+        addresses.AddRange(HostAddresses.GetIpv4());
+
         var host = new MatterHostInfo
         {
             HostName = new DnsName($"{_hostId:X16}", "local"),
-            Addresses = HostAddresses.GetIpv6(),
+            Addresses = addresses,
             Port = UdpMatterTransport.DefaultPort,
         };
 
@@ -247,23 +259,31 @@ public sealed class MatterNodeHost : IAsyncDisposable
         await _advertiser.StartAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Stops advertising (sending an mDNS goodbye so controllers drop the node's services immediately),
+    /// tears down the transport, and disposes the owned Secure Channel / session resources. Disposal is
+    /// idempotent and performed in reverse order of startup.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
-        _transport.DatagramReceived -= OnDatagramReceived;
-        await _lifetime.CancelAsync().ConfigureAwait(false);
+        // Signal every in-flight dispatch/handshake to unwind before tearing anything down.
+        if (!_lifetime.IsCancellationRequested)
+        {
+            _lifetime.Cancel();
+        }
 
+        // Stop advertising first: this sends the DNS-SD goodbye and disposes the mDNS interface/responder.
         if (_advertiser is not null)
         {
-            // Sends a DNS-SD goodbye so controllers drop our services immediately rather than at TTL expiry.
             await _advertiser.DisposeAsync().ConfigureAwait(false);
         }
 
         _advertisingInputs?.Dispose();
-        _paseResponder?.Dispose();
-        _sessions.Dispose();
-        _exchanges.Dispose();
+
+        // Detach from the transport before disposing it so no further datagrams are dispatched.
+        _transport.DatagramReceived -= OnDatagramReceived;
         await _transport.DisposeAsync().ConfigureAwait(false);
+
         _lifetime.Dispose();
     }
 }

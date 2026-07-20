@@ -92,9 +92,11 @@ public sealed class FileFabricPersistence : IDisposable
             var snapshots = ReadSnapshotsFromDisk(_path, _keyPassword);
 
             // TODO(diagnostic): temporary - remove once fabric persistence across restarts is confirmed reliable.
+            /*
             Console.Error.WriteLine(snapshots is null
                 ? $"[FileFabricPersistence] no persisted fabrics file at '{_path}'."
                 : $"[FileFabricPersistence] restored {snapshots.Count} fabric(s) from '{_path}'.");
+            */
 
             if (snapshots is { Count: > 0 })
             {
