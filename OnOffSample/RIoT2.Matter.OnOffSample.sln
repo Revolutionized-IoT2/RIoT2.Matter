@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37411.7
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RIoT2.Matter.OnOffSample", "RIoT2.Matter.OnOffSample.csproj", "{B7D84E9F-5952-48D4-9E9F-19BA3687A494}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RIoT2.Matter", "..\RIoT2.Matter.csproj", "{73BB9E9F-D184-61EA-8605-D36B2A843475}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RIoT2.Matter.ControlBridge", "..\ControlBridge\RIoT2.Matter.ControlBridge.csproj", "{EDF69657-6688-FCC9-73FC-66EF896BE2FA}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B7D84E9F-5952-48D4-9E9F-19BA3687A494}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7D84E9F-5952-48D4-9E9F-19BA3687A494}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7D84E9F-5952-48D4-9E9F-19BA3687A494}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7D84E9F-5952-48D4-9E9F-19BA3687A494}.Release|Any CPU.Build.0 = Release|Any CPU
+		{73BB9E9F-D184-61EA-8605-D36B2A843475}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{73BB9E9F-D184-61EA-8605-D36B2A843475}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{73BB9E9F-D184-61EA-8605-D36B2A843475}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{73BB9E9F-D184-61EA-8605-D36B2A843475}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EDF69657-6688-FCC9-73FC-66EF896BE2FA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EDF69657-6688-FCC9-73FC-66EF896BE2FA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EDF69657-6688-FCC9-73FC-66EF896BE2FA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EDF69657-6688-FCC9-73FC-66EF896BE2FA}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F61463A2-26C0-4EF1-AB97-62081567E1C4}
+	EndGlobalSection
+EndGlobal

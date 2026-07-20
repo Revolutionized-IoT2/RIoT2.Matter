@@ -6,4 +6,20 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="ControlBridge\**" />
+    <Compile Remove="Controller\**" />
+    <Compile Remove="OnOffSample\**" />
+    <EmbeddedResource Remove="ControlBridge\**" />
+    <EmbeddedResource Remove="Controller\**" />
+    <EmbeddedResource Remove="OnOffSample\**" />
+    <None Remove="ControlBridge\**" />
+    <None Remove="Controller\**" />
+    <None Remove="OnOffSample\**" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Scalar.AspNetCore" Version="2.0.7" />
+		<PackageReference Include="QRCoder" Version="1.6.0" />
+	</ItemGroup>
 </Project>
