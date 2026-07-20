@@ -5,6 +5,7 @@ using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using RIoT2.Matter.Clusters;
+using RIoT2.Matter.Credentials;
 using RIoT2.Matter.Tlv;
 
 namespace RIoT2.Matter.OnOffSample;
@@ -51,9 +52,9 @@ internal static class SampleAttestation
     // Where the minted, VID/PID-specific credentials are written and read back from.
     private const string CredentialsDirectory = "credentials";
     private static string PaiPath => Path.Combine(CredentialsDirectory, $"test-PAI-{VendorId:X4}-cert.der");
-    private static string PaiKeyPath => Path.Combine(CredentialsDirectory, $"test-PAI-{VendorId:X4}-key.pkcs8");
+    private static string PaiKeyPath => Path.Combine(CredentialsDirectory, $"test-PAI-{VendorId:X4}-key.pem");
     private static string DacPath => Path.Combine(CredentialsDirectory, $"test-DAC-{VendorId:X4}-{ProductId:X4}-cert.der");
-    private static string DacKeyPath => Path.Combine(CredentialsDirectory, $"test-DAC-{VendorId:X4}-{ProductId:X4}-key.pkcs8");
+    private static string DacKeyPath => Path.Combine(CredentialsDirectory, $"test-DAC-{VendorId:X4}-{ProductId:X4}-key.pem");
     private static string CdPath => Path.Combine(CredentialsDirectory, $"Chip-Test-CD-{VendorId:X4}-{ProductId:X4}.der");
 
     // The guide's validity window: --valid-from "2021-06-28 14:23:43", --lifetime "4294967295".
@@ -94,6 +95,10 @@ internal static class SampleAttestation
         if (!hasDeviceChain)
         {
             GenerateAttestationChain();
+
+            // Newly minted material: validate the DAC→PAI→PAA chain and VID/PID consistency,
+            // equivalent to `chip-cert validate-att-cert --dac … --pai … --paa …`. Report to console.
+            VerifyGeneratedChain();
         }
 
         if (!File.Exists(CdPath))
@@ -103,8 +108,84 @@ internal static class SampleAttestation
     }
 
     /// <summary>
+    /// Runs the library's attestation chain verifier over the freshly generated DAC/PAI, anchored to
+    /// the fixed test PAA, and confirms the certificates carry the expected VID/PID. Any failure is
+    /// written to the console; success is logged so the sample's output shows the check ran.
+    /// </summary>
+    private static void VerifyGeneratedChain()
+    {
+        byte[] dac = ReadDer(DacPath);
+        byte[] pai = ReadDer(PaiPath);
+        byte[] paa = ReadDer(PaaCertPath);
+
+        var verifier = new AttestationCertificateChainVerifier(new[] { paa });
+        AttestationChainVerificationResult result = verifier.Verify(dac, pai);
+
+        if (!result.IsSuccess)
+        {
+            Console.Error.WriteLine($"[attestation] Generated DAC/PAI chain is INVALID: {result.FailureReason}");
+            return;
+        }
+
+        // Cross-check the DAC/PAI subject VID/PID against the sample's configured identifiers.
+        string? vidPidError = VerifyExpectedVendorAndProductIds(dac, pai);
+        if (vidPidError is not null)
+        {
+            Console.Error.WriteLine($"[attestation] Generated certificates do not match the expected VID/PID: {vidPidError}");
+            return;
+        }
+
+        Console.WriteLine($"[attestation] Generated DAC/PAI chain is valid and matches VID=0x{VendorId:X4} PID=0x{ProductId:X4}.");
+    }
+
+    /// <summary>
+    /// Confirms the DAC carries VID=<see cref="VendorId"/> / PID=<see cref="ProductId"/> and the PAI
+    /// carries the matching VID, returning a diagnostic on mismatch or null when consistent.
+    /// </summary>
+    private static string? VerifyExpectedVendorAndProductIds(byte[] dacDer, byte[] paiDer)
+    {
+        using X509Certificate2 dac = X509CertificateLoader.LoadCertificate(dacDer);
+        using X509Certificate2 pai = X509CertificateLoader.LoadCertificate(paiDer);
+
+        int? dacVid = ReadDnInteger(dac.SubjectName, MatterVendorIdOid);
+        int? dacPid = ReadDnInteger(dac.SubjectName, MatterProductIdOid);
+        int? paiVid = ReadDnInteger(pai.SubjectName, MatterVendorIdOid);
+
+        if (dacVid != VendorId) { return $"DAC Vendor ID {Describe(dacVid)} does not equal expected 0x{VendorId:X4}."; }
+        if (dacPid != ProductId) { return $"DAC Product ID {Describe(dacPid)} does not equal expected 0x{ProductId:X4}."; }
+        if (paiVid != VendorId) { return $"PAI Vendor ID {Describe(paiVid)} does not equal expected 0x{VendorId:X4}."; }
+
+        return null;
+    }
+
+    private static string Describe(int? value) => value is { } v ? $"0x{v:X4}" : "(missing)";
+
+    /// <summary>Reads a Matter VID/PID DN attribute (a 4-hex-digit string) as an integer.</summary>
+    private static int? ReadDnInteger(X500DistinguishedName name, string oid)
+    {
+        foreach (var rdn in name.EnumerateRelativeDistinguishedNames())
+        {
+            if (!string.Equals(rdn.GetSingleElementType().Value, oid, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string? value = rdn.GetSingleElementValue();
+            if (value is not null && int.TryParse(value, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out int parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Mints the PAI and DAC off the fixed test PAA, following the guide's <c>gen-att-cert</c> steps,
-    /// and persists the certificates (DER) plus their P-256 keys (PKCS#8).
+    /// and persists the certificates (DER) plus their P-256 keys (PEM), matching the connectedhomeip
+    /// guide's file naming (<c>test-PAI-${VID}-cert.der</c>, <c>test-PAI-${VID}-key.pem</c>, …) so the
+    /// artifacts can be inspected with <c>openssl</c> or fed to <c>chip-cert</c> directly.
     /// </summary>
     private static void GenerateAttestationChain()
     {
@@ -120,10 +201,23 @@ internal static class SampleAttestation
         // gen-att-cert --type d : DAC signed by the PAI, carrying subject-vid + subject-pid.
         using X509Certificate2 dac = CreateDac(dacKey, paiKey, pai);
 
-        File.WriteAllBytes(PaiPath, pai.Export(X509ContentType.Cert));
-        File.WriteAllBytes(PaiKeyPath, paiKey.ExportPkcs8PrivateKey());
-        File.WriteAllBytes(DacPath, dac.Export(X509ContentType.Cert));
-        File.WriteAllBytes(DacKeyPath, dacKey.ExportPkcs8PrivateKey());
+        File.WriteAllText(PaiPath, pai.ExportCertificatePem());
+        File.WriteAllText(PaiKeyPath, paiKey.ExportPkcs8PrivateKeyPem());
+        File.WriteAllText(DacPath, dac.ExportCertificatePem());
+        File.WriteAllText(DacKeyPath, dacKey.ExportPkcs8PrivateKeyPem());
+    }
+
+    /// <summary>
+    /// Writes PEM copies of the minted certificates and keys alongside the DER/PKCS#8 artifacts, using
+    /// the connectedhomeip guide's naming so they can be passed directly to
+    /// <c>chip-cert validate-att-cert</c> or inspected with <c>openssl</c>.
+    /// </summary>
+    private static void WritePemCopies(X509Certificate2 pai, ECDsa paiKey, X509Certificate2 dac, ECDsa dacKey)
+    {
+        File.WriteAllText(Path.ChangeExtension(PaiPath, ".pem"), pai.ExportCertificatePem());
+        File.WriteAllText(Path.ChangeExtension(PaiKeyPath, ".pem"), paiKey.ExportPkcs8PrivateKeyPem());
+        File.WriteAllText(Path.ChangeExtension(DacPath, ".pem"), dac.ExportCertificatePem());
+        File.WriteAllText(Path.ChangeExtension(DacKeyPath, ".pem"), dacKey.ExportPkcs8PrivateKeyPem());
     }
 
     /// <summary>Reads a certificate or CMS blob as DER, transparently unwrapping PEM armor if present.</summary>
@@ -171,6 +265,20 @@ internal static class SampleAttestation
     /// <summary>DER structures start with an ASN.1 SEQUENCE (0x30); PEM starts with its ASCII armor.</summary>
     private static bool IsPem(ReadOnlySpan<byte> data) => data.Length > 0 && data[0] != 0x30;
 
+    /// <summary>Builds a subject DN with the Matter vendor-id (and optionally product-id) RDNs.</summary>
+    private static X500DistinguishedName BuildName(string commonName, bool includeProductId)
+    {
+        var builder = new X500DistinguishedNameBuilder();
+        builder.AddCommonName(commonName);
+        builder.Add(MatterVendorIdOid, VendorId.ToString("X4"), UniversalTagNumber.UTF8String);
+        if (includeProductId)
+        {
+            builder.Add(MatterProductIdOid, ProductId.ToString("X4"), UniversalTagNumber.UTF8String);
+        }
+
+        return builder.Build();
+    }
+
     /// <summary>
     /// The Product Attestation Intermediate, signed by the PAA. Mirrors
     /// <c>gen-att-cert --type i --subject-cn "Matter Test PAI" --subject-vid ${VID}</c>.
@@ -197,20 +305,6 @@ internal static class SampleAttestation
         request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(request.PublicKey, critical: false));
         request.CertificateExtensions.Add(X509AuthorityKeyIdentifierExtension.CreateFromCertificate(pai, includeKeyIdentifier: true, includeIssuerAndSerial: false));
         return request.Create(pai.SubjectName, X509SignatureGenerator.CreateForECDsa(paiKey), NotBefore, NotAfter, NextSerial());
-    }
-
-    /// <summary>Builds a subject DN with the Matter vendor-id (and optionally product-id) RDNs.</summary>
-    private static X500DistinguishedName BuildName(string commonName, bool includeProductId)
-    {
-        var builder = new X500DistinguishedNameBuilder();
-        builder.AddCommonName(commonName);
-        builder.Add(MatterVendorIdOid, VendorId.ToString("X4"), UniversalTagNumber.UTF8String);
-        if (includeProductId)
-        {
-            builder.Add(MatterProductIdOid, ProductId.ToString("X4"), UniversalTagNumber.UTF8String);
-        }
-
-        return builder.Build();
     }
 
     /// <summary>
