@@ -51,13 +51,13 @@ public readonly record struct ReliableMessageProtocolConfig
     /// <param name="sendCount">The number of times the message has already been transmitted (&gt;= 1).</param>
     /// <param name="peerIsActive">True to use the active interval (SAI); otherwise the idle interval (SII).</param>
     /// <param name="jitter">Random value in [0, 1) used for the jitter term; a fresh sample is drawn when null.</param>
-    /// <remarks>TODO: validate against the specification's MRP backoff test vectors.</remarks>
+    /// <remarks>Validated against the specification's MRP backoff vectors by <c>RIoT2.Matter.Messaging.Kat.MatterMrpKat</c>.</remarks>
     public TimeSpan GetRetransmissionTimeout(int sendCount, bool peerIsActive, double? jitter = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(sendCount, 1);
 
         var baseInterval = peerIsActive ? ActiveRetransmitTimeout : IdleRetransmitTimeout;
-        var exponent = Math.Max(0, sendCount - 1 - BackoffThreshold);
+        var exponent = Math.Max(0, sendCount - BackoffThreshold);
         var backoff = Math.Pow(BackoffBase, exponent);
         var jitterSample = jitter ?? Random.Shared.NextDouble();
 

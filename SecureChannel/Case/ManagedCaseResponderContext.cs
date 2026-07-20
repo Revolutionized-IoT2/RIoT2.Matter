@@ -49,6 +49,8 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
 
     public NodeId PeerNodeId => _peerNodeId;
 
+    public ReadOnlyMemory<byte> SharedSecret => _sharedSecret ?? ReadOnlyMemory<byte>.Empty;
+
     public void AppendToTranscript(ReadOnlySpan<byte> messagePayload) => _transcript.AddRange(messagePayload.ToArray());
 
     /// <inheritdoc />

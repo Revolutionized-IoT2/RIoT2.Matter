@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using System.Security.Cryptography;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.Hosting;
 using RIoT2.Matter.Messaging;
 using RIoT2.Matter.Tlv;
 
@@ -27,6 +28,7 @@ public sealed class CaseClient : IExchangeMessageHandler
     private readonly ICaseCryptoProvider _crypto;
     private readonly ResolvedFabric _fabric;
     private readonly ushort _localSessionId;
+    private readonly ICaseResumptionStore? _resumptionStore;
     private readonly TaskCompletionSource<CaseSessionEstablishedEventArgs> _completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -36,17 +38,31 @@ public sealed class CaseClient : IExchangeMessageHandler
     private ReliableMessageProtocolConfig _peerSessionParameters = ReliableMessageProtocolConfig.Default;
     private Phase _phase = Phase.Idle;
 
+    // Resumption-only state, set when EstablishAsync offers a resumption in Sigma1.
+    private CaseResumptionRecord? _resumptionOffer;
+    private OperationalPeer _peer;
+
     /// <param name="crypto">The CASE crypto engine factory.</param>
     /// <param name="fabric">The local fabric credentials to authenticate as, and whose root authenticates the peer.</param>
     /// <param name="localSessionId">
     /// The initiator (local) session id advertised in Sigma1; reserve it from the session manager so it
     /// is held for the session installed on success.
     /// </param>
-    public CaseClient(ICaseCryptoProvider crypto, ResolvedFabric fabric, ushort localSessionId)
+    /// <param name="resumptionStore">
+    /// Optional store of prior-session resumption records. When it holds a record for the peer being
+    /// contacted, the handshake offers resumption in Sigma1 (spec §4.14.2.6); the responder may still
+    /// decline and run a full handshake.
+    /// </param>
+    public CaseClient(
+        ICaseCryptoProvider crypto,
+        ResolvedFabric fabric,
+        ushort localSessionId,
+        ICaseResumptionStore? resumptionStore = null)
     {
         _crypto = crypto ?? throw new ArgumentNullException(nameof(crypto));
         _fabric = fabric ?? throw new ArgumentNullException(nameof(fabric));
         _localSessionId = localSessionId;
+        _resumptionStore = resumptionStore;
     }
 
     /// <summary>Raised once on a successful handshake with the material needed to install the session.</summary>
@@ -69,16 +85,36 @@ public sealed class CaseClient : IExchangeMessageHandler
         }
 
         _context = _crypto.CreateInitiator(_fabric, peerNodeId);
+        _peer = new OperationalPeer(_fabric.FabricIndex, peerNodeId);
 
         using (cancellationToken.Register(static state => ((CaseClient)state!).FailLocally(new OperationCanceledException()), this))
         {
             _exchange = exchanges.NewExchange(session, MatterProtocolId.SecureChannel, this);
 
-            byte[] sigma1 = BuildSigma1(
-                _context.InitiatorRandom.Span, _localSessionId, _context.DestinationIdentifier.Span, _context.InitiatorEphemeralPublicKey.Span);
+            byte[] sigma1;
+
+            // Offer resumption when a record for this peer exists: include resumptionID (field 6) and
+            // initiatorResumeMIC (field 7). The responder either replies Sigma2_Resume or, declining,
+            // runs a full handshake by replying Sigma2 (spec §4.14.2.6).
+            if (_resumptionStore is not null && _resumptionStore.TryGetByPeer(_peer, out var record))
+            {
+                _resumptionOffer = record;
+                byte[] resumeMic = _crypto.ComputeSigma1ResumeMic(
+                    record.SharedSecret, _context.InitiatorRandom.Span, record.ResumptionId);
+                sigma1 = BuildSigma1(
+                    _context.InitiatorRandom.Span, _localSessionId, _context.DestinationIdentifier.Span,
+                    _context.InitiatorEphemeralPublicKey.Span, record.ResumptionId, resumeMic);
+                _phase = Phase.AwaitingSigma2OrResume;
+            }
+            else
+            {
+                sigma1 = BuildSigma1(
+                    _context.InitiatorRandom.Span, _localSessionId, _context.DestinationIdentifier.Span, _context.InitiatorEphemeralPublicKey.Span);
+                _phase = Phase.AwaitingSigma2;
+            }
+
             _context.AppendToTranscript(sigma1);
             _context.NoteSigma1Length(sigma1.Length);
-            _phase = Phase.AwaitingSigma2;
 
             await _exchange.SendAsync((byte)SecureChannelOpcode.CaseSigma1, sigma1, reliable: true, cancellationToken).ConfigureAwait(false);
             return await _completion.Task.ConfigureAwait(false);
@@ -96,6 +132,10 @@ public sealed class CaseClient : IExchangeMessageHandler
         {
             case SecureChannelOpcode.CaseSigma2:
                 await HandleSigma2Async(exchange, message, cancellationToken).ConfigureAwait(false);
+                break;
+
+            case SecureChannelOpcode.CaseSigma2Resume:
+                await HandleSigma2ResumeAsync(exchange, message, cancellationToken).ConfigureAwait(false);
                 break;
 
             case SecureChannelOpcode.StatusReport:
@@ -126,11 +166,16 @@ public sealed class CaseClient : IExchangeMessageHandler
 
     private async ValueTask HandleSigma2Async(ExchangeContext exchange, MatterMessage message, CancellationToken cancellationToken)
     {
-        if (_phase != Phase.AwaitingSigma2 || _context is null)
+        // A Sigma2 reply to a resumption offer means the responder declined resumption (Type 2): fall
+        // back to the full handshake by treating this as the normal awaiting-Sigma2 state.
+        if (_phase is not (Phase.AwaitingSigma2 or Phase.AwaitingSigma2OrResume) || _context is null)
         {
             await FailAsync(exchange, SecureChannelStatusCode.InvalidParameter, cancellationToken).ConfigureAwait(false);
             return;
         }
+
+        _phase = Phase.AwaitingSigma2;
+        _resumptionOffer = null;
 
         if (!TryParseSigma2(message.ApplicationPayload.Span, out var sigma2))
         {
@@ -166,6 +211,63 @@ public sealed class CaseClient : IExchangeMessageHandler
         await exchange.SendAsync((byte)SecureChannelOpcode.CaseSigma3, sigma3, reliable: true, cancellationToken).ConfigureAwait(false);
     }
 
+    private void CompleteEstablished(NodeId peerNodeId, CaseSessionKeys keys)
+    {
+        _phase = Phase.Established;
+        var args = new CaseSessionEstablishedEventArgs(
+            _localSessionId, _peerSessionId, _fabric.FabricIndex, peerNodeId, keys, _peerSessionParameters);
+        SessionEstablished?.Invoke(this, args);
+        _completion.TrySetResult(args);
+    }
+
+    private void SaveResumptionRecord(NodeId peerNodeId, byte[] sharedSecret, byte[]? resumptionId)
+    {
+        if (_resumptionStore is null || sharedSecret.Length == 0)
+        {
+            return;
+        }
+
+        _resumptionStore.Save(new CaseResumptionRecord(
+            resumptionId ?? _crypto.GenerateResumptionId(),
+            sharedSecret,
+            _peer,
+            _peerSessionParameters));
+    }
+
+    private async ValueTask HandleSigma2ResumeAsync(ExchangeContext exchange, MatterMessage message, CancellationToken cancellationToken)
+    {
+        // Sigma2_Resume is valid only in reply to a resumption offer we made in Sigma1.
+        if (_phase != Phase.AwaitingSigma2OrResume || _context is null || _resumptionOffer is not { } offer)
+        {
+            await FailAsync(exchange, SecureChannelStatusCode.InvalidParameter, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryParseSigma2Resume(message.ApplicationPayload.Span, out var resume) ||
+            !_crypto.VerifySigma2ResumeMic(offer.SharedSecret, _context.InitiatorRandom.Span, resume.ResumptionId, resume.Sigma2ResumeMic))
+        {
+            await FailAsync(exchange, SecureChannelStatusCode.InvalidParameter, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        CaseSessionKeys keys = _crypto.DeriveResumedSessionKeys(
+            offer.SharedSecret, _context.InitiatorRandom.Span, resume.ResumptionId);
+
+        // A resumed session authenticates the peer from the stored record, not from a fresh NOC.
+        NodeId peerNodeId = _peer.NodeId;
+        _peerSessionId = resume.ResponderSessionId;
+        _peerSessionParameters = resume.ResponderSessionParams;
+
+        // Confirm the resumed session to the responder before completing.
+        await SecureChannelHandler.SendStatusReportAsync(
+            exchange, GeneralStatusCode.Success, SecureChannelStatusCode.SessionEstablishmentSuccess, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        // Persist the freshly issued resumptionID + reused shared secret for the next resumption.
+        SaveResumptionRecord(peerNodeId, offer.SharedSecret, resume.ResumptionId);
+
+        CompleteEstablished(peerNodeId, keys);
+    }
+
     private void HandleStatusReport(MatterMessage message)
     {
         if (!SecureChannelStatusReport.TryParse(message.ApplicationPayload.Span, out var report) || _context is null)
@@ -185,10 +287,12 @@ public sealed class CaseClient : IExchangeMessageHandler
 
         CaseSessionKeys keys;
         NodeId peerNodeId;
+        byte[] sharedSecret;
         try
         {
             keys = _context.DeriveSessionKeys();
             peerNodeId = _context.PeerNodeId;
+            sharedSecret = _context.SharedSecret.ToArray();
         }
         catch (CryptographicException ex)
         {
@@ -196,11 +300,10 @@ public sealed class CaseClient : IExchangeMessageHandler
             return;
         }
 
-        _phase = Phase.Established;
-        var args = new CaseSessionEstablishedEventArgs(
-            _localSessionId, _peerSessionId, _fabric.FabricIndex, peerNodeId, keys, _peerSessionParameters);
-        SessionEstablished?.Invoke(this, args);
-        _completion.TrySetResult(args);
+        // Persist a resumption record so the next session to this peer can resume (spec §4.14.2.6).
+        SaveResumptionRecord(peerNodeId, sharedSecret, resumptionId: null);
+
+        CompleteEstablished(peerNodeId, keys);
     }
 
     private async ValueTask FailAsync(ExchangeContext exchange, SecureChannelStatusCode statusCode, CancellationToken cancellationToken)
@@ -225,6 +328,17 @@ public sealed class CaseClient : IExchangeMessageHandler
     private static byte[] BuildSigma1(
         ReadOnlySpan<byte> initiatorRandom, ushort initiatorSessionId, ReadOnlySpan<byte> destinationId, ReadOnlySpan<byte> initiatorEphPubKey)
     {
+        return BuildSigma1(initiatorRandom, initiatorSessionId, destinationId, initiatorEphPubKey, resumptionId: default, initiatorResumeMic: default);
+    }
+
+    private static byte[] BuildSigma1(
+        ReadOnlySpan<byte> initiatorRandom,
+        ushort initiatorSessionId,
+        ReadOnlySpan<byte> destinationId,
+        ReadOnlySpan<byte> initiatorEphPubKey,
+        ReadOnlySpan<byte> resumptionId,
+        ReadOnlySpan<byte> initiatorResumeMic)
+    {
         var buffer = new ArrayBufferWriter<byte>();
         var writer = new TlvWriter(buffer);
 
@@ -237,6 +351,15 @@ public sealed class CaseClient : IExchangeMessageHandler
         // initiatorSessionParams (field 5): advertise this node's MRP config so the responder uses
         // the correct retransmit timing for messages sent to the initiator (spec §4.11.2, §4.14.1).
         SessionParametersCodec.Write(writer, TlvTag.ContextSpecific(5), ReliableMessageProtocolConfig.Default);
+
+        // resumptionID (field 6) + initiatorResumeMIC (field 7): present only when offering resumption
+        // of a prior session (spec §4.14.2.6). A responder that cannot resume ignores them and runs a
+        // full handshake, so they are safe to include whenever a resumption record exists.
+        if (!resumptionId.IsEmpty && !initiatorResumeMic.IsEmpty)
+        {
+            writer.WriteByteString(TlvTag.ContextSpecific(6), resumptionId);
+            writer.WriteByteString(TlvTag.ContextSpecific(7), initiatorResumeMic);
+        }
 
         writer.EndContainer();
 
@@ -306,10 +429,58 @@ public sealed class CaseClient : IExchangeMessageHandler
         byte[] Encrypted,
         ReliableMessageProtocolConfig ResponderSessionParams);
 
+    private static bool TryParseSigma2Resume(ReadOnlySpan<byte> payload, out Sigma2ResumeFields fields)
+    {
+        byte[]? resumptionId = null;
+        byte[]? sigma2ResumeMic = null;
+        ushort responderSessionId = 0;
+        var responderSessionParams = ReliableMessageProtocolConfig.Default;
+
+        var reader = new TlvReader(payload);
+        var depth = 0;
+        while (reader.Read())
+        {
+            // responderSessionParams (field 4) is a structure nested one level inside the outer
+            // Sigma2_Resume structure; parse it in place so the outer depth tracking never descends.
+            if (depth == 1 && reader.IsContainer && reader.Tag.TagNumber == 4)
+            {
+                responderSessionParams = SessionParametersCodec.ReadStructure(ref reader);
+                continue;
+            }
+
+            if (reader.IsContainer) { depth++; continue; }
+            if (reader.IsEndOfContainer) { depth--; continue; }
+            if (depth != 1) { continue; }
+
+            switch (reader.Tag.TagNumber)
+            {
+                case 1: resumptionId = reader.GetByteString().ToArray(); break;      // resumptionID
+                case 2: sigma2ResumeMic = reader.GetByteString().ToArray(); break;   // sigma2ResumeMIC
+                case 3: responderSessionId = (ushort)reader.GetUnsignedInteger(); break;
+            }
+        }
+
+        if (resumptionId is not { Length: > 0 } || sigma2ResumeMic is not { Length: > 0 })
+        {
+            fields = default;
+            return false;
+        }
+
+        fields = new Sigma2ResumeFields(resumptionId, sigma2ResumeMic, responderSessionId, responderSessionParams);
+        return true;
+    }
+
+    private readonly record struct Sigma2ResumeFields(
+        byte[] ResumptionId,
+        byte[] Sigma2ResumeMic,
+        ushort ResponderSessionId,
+        ReliableMessageProtocolConfig ResponderSessionParams);
+
     private enum Phase
     {
         Idle,
         AwaitingSigma2,
+        AwaitingSigma2OrResume,
         AwaitingStatus,
         Established,
         Failed,

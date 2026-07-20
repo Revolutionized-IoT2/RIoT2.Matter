@@ -458,7 +458,9 @@ Implemented and interoperable per the Matter Core Specification:
 - ✅ TLV encode/decode primitives.
 - ✅ IPv6/UDP transport + exchange/message layer with **MRP**, secure session manager (counters,
   replay protection, AES-CCM AEAD, privacy `P`-flag).
-- ✅ Secure Channel: **PASE** (commissioning) then **CASE** (operational), installing operational sessions.
+- ✅ Secure Channel: **PASE** (commissioning) then **CASE** (operational), installing operational
+  sessions, with **CASE session resumption** (Sigma2_Resume) to re-establish sessions without a full
+  Sigma1/2/3 handshake.
 - ✅ **DNS-SD/mDNS** advertising & discovery (operational `_matter._tcp`, commissionable `_matterc._udp`).
 - ✅ **Interaction Model**: Read / Write / Invoke / Subscribe, timed interactions, report chunking,
   event generation, element-wise list writes.
@@ -472,7 +474,6 @@ Implemented and interoperable per the Matter Core Specification:
 
 Known gaps / deferred (contributions welcome):
 
-- ⏳ CASE **session resumption**.
 - ⏳ **Group-cast** message security path end to end.
 - ⏳ **BLE/BTP** transport (only IPv6/UDP is provided).
 - ⏳ MRP **standalone acknowledgements** in all paths.
