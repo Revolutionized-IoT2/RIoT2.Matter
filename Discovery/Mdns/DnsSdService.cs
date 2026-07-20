@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using RIoT2.Matter.Discovery.Dns;
 
 namespace RIoT2.Matter.Discovery.Mdns;
@@ -29,12 +30,15 @@ public sealed record DnsSdService
     /// <summary>The TXT character-strings (see <see cref="DnsSdTxtRecordBuilder"/>).</summary>
     public IReadOnlyList<string> TxtEntries { get; init; } = [];
 
-    /// <summary>The IPv6 addresses of <see cref="HostName"/>, emitted as AAAA records.</summary>
+    /// <summary>
+    /// The addresses of <see cref="HostName"/>. IPv6 addresses are emitted as AAAA records and IPv4
+    /// addresses as A records, so a controller reaching the node over either family can resolve it.
+    /// </summary>
     public IReadOnlyList<IPAddress> Addresses { get; init; } = [];
 
     /// <summary>
     /// Projects this service into its DNS resource-record set: the service PTR, one PTR per subtype (shared,
-    /// no cache-flush), then the instance's SRV/TXT and the host's AAAA records (unique, cache-flush set).
+    /// no cache-flush), then the instance's SRV/TXT and the host's A/AAAA records (unique, cache-flush set).
     /// See RFC 6762 section 10.2.
     /// </summary>
     public IReadOnlyList<DnsResourceRecord> ToRecords()
@@ -79,13 +83,25 @@ public sealed record DnsSdService
 
         foreach (IPAddress address in Addresses)
         {
-            records.Add(new AaaaRecord
-            {
-                Name = HostName,
-                Address = address,
-                Ttl = DnsResourceRecord.DefaultHostTtl,
-                CacheFlush = true,
-            });
+            // Emit the record type matching the address family: AAAA for IPv6, A for IPv4. Advertising
+            // both lets an IPv4-only controller (e.g. a hub on an IPv6 ULA-only LAN) resolve the host.
+            DnsResourceRecord addressRecord = address.AddressFamily == AddressFamily.InterNetwork
+                ? new ARecord
+                {
+                    Name = HostName,
+                    Address = address,
+                    Ttl = DnsResourceRecord.DefaultHostTtl,
+                    CacheFlush = true,
+                }
+                : new AaaaRecord
+                {
+                    Name = HostName,
+                    Address = address,
+                    Ttl = DnsResourceRecord.DefaultHostTtl,
+                    CacheFlush = true,
+                };
+
+            records.Add(addressRecord);
         }
 
         return records;

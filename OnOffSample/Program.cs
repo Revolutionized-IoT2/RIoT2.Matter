@@ -101,7 +101,13 @@ internal static class Program
         // 5. Start the host: transport, sessions, Secure Channel (PASE/CASE), Interaction Model, DNS-SD.
         //    The host owns an in-process CASE resumption store, so an already-commissioned controller can
         //    resume a prior session via Sigma2_Resume (spec §4.14.2.6) without any wiring here.
-        await using var host = new MatterNodeHost(device.Node, device.Commissioning, provisioning, commissionable);
+        //    A stable, serial-derived host id keeps the <id>.local host name constant across restarts.
+        await using var host = new MatterNodeHost(
+            device.Node,
+            device.Commissioning,
+            provisioning,
+            commissionable,
+            hostId: StableInstanceId($"host:{options.Information.SerialNumber}"));
         using var lifetime = new CancellationTokenSource();
         await host.StartAsync(lifetime.Token);
 

@@ -77,4 +77,46 @@ public static class HostAddresses
 
         return preferred.Count > 0 ? preferred : fallback;
     }
+
+    /// <summary>
+    /// The local IPv4 unicast addresses to publish as the host's A records. On networks that provide no
+    /// global IPv6 address (e.g. an IPv6 ULA-only LAN) some commissioners (notably Google's Matter hub)
+    /// commission over IPv4, so advertising these alongside the AAAA records gives them a reachable route.
+    /// Loopback, link-local (169.254.0.0/16), and non-operational interfaces are excluded.
+    /// </summary>
+    public static IReadOnlyList<IPAddress> GetIpv4()
+    {
+        var addresses = new List<IPAddress>();
+
+        foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up ||
+                nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+            {
+                continue;
+            }
+
+            foreach (UnicastIPAddressInformation address in nic.GetIPProperties().UnicastAddresses)
+            {
+                IPAddress ip = address.Address;
+                if (ip.AddressFamily != AddressFamily.InterNetwork ||
+                    IPAddress.IsLoopback(ip) ||
+                    IsLinkLocalV4(ip))
+                {
+                    continue;
+                }
+
+                addresses.Add(ip);
+            }
+        }
+
+        return addresses;
+    }
+
+    // 169.254.0.0/16 (RFC 3927) auto-configuration addresses are not routable and must not be advertised.
+    private static bool IsLinkLocalV4(IPAddress ip)
+    {
+        Span<byte> bytes = stackalloc byte[4];
+        return ip.TryWriteBytes(bytes, out int written) && written == 4 && bytes[0] == 169 && bytes[1] == 254;
+    }
 }
