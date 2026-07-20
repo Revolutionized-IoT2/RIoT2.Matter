@@ -37,6 +37,10 @@ public sealed class MatterNodeHost : IAsyncDisposable
     private readonly SessionManager _sessions = new();
     private readonly ExchangeManager _exchanges = new();
     private readonly ManagedCaseCryptoProvider _caseCrypto = new();
+
+    // Shared across the CASE responder and every CASE initiator so a session established in one role
+    // can be resumed later (spec §4.14.2.6). Process memory only; not persisted across restarts.
+    private readonly ManagedCaseResumptionStore _caseResumption = new();
     private readonly InboundMessageDispatcher _inbound;
     private readonly InteractionModelClient _interactionClient;
     private readonly CancellationTokenSource _lifetime = new();
@@ -105,8 +109,8 @@ public sealed class MatterNodeHost : IAsyncDisposable
             basicWindowPbkdfParameters: _provisioning.Parameters);
 
         // CASE server: establishes operational sessions with commissioned controllers. The same crypto
-        // provider backs the CASE initiator used by ConnectAsync.
-        _caseServer = new CaseServer(_caseCrypto, _commissioning.Manager, _sessions.AllocateSessionId);
+        // provider and resumption store back the CASE initiator used by ConnectAsync.
+        _caseServer = new CaseServer(_caseCrypto, _commissioning.Manager, _sessions.AllocateSessionId, _caseResumption);
         _installer.Attach(_caseServer);
 
         // Register the Secure Channel + Interaction Model unsolicited handlers.
@@ -166,7 +170,7 @@ public sealed class MatterNodeHost : IAsyncDisposable
 
         // Reserve a local session id up front so it is held for the session installed on success.
         var localSessionId = _sessions.AllocateSessionId();
-        var caseClient = new CaseClient(_caseCrypto, localFabric, localSessionId);
+        var caseClient = new CaseClient(_caseCrypto, localFabric, localSessionId, _caseResumption);
         _installer.Attach(caseClient);
         try
         {

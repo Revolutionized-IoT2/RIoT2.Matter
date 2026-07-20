@@ -55,4 +55,98 @@ public sealed class ManagedCaseCryptoProvider : ICaseCryptoProvider
         hmac.AppendData(node);
         return hmac.GetHashAndReset();
     }
+
+    // --- Session resumption (spec section 4.14.2.6) ----------------------------------------------
+
+    private const int KeyLength = 16;
+    private const int ResumptionIdLength = 16;
+    private const int MicLength = 16;
+
+    private static readonly byte[] Sigma1ResumeKeyInfo = "Sigma1_Resume"u8.ToArray();
+    private static readonly byte[] Sigma2ResumeKeyInfo = "Sigma2_Resume"u8.ToArray();
+    private static readonly byte[] SessionResumptionKeysInfo = "SessionResumptionKeys"u8.ToArray();
+    private static readonly byte[] Sigma1ResumeNonce = "NCASE_SigmaS1"u8.ToArray(); // 13-byte AES-CCM nonce
+    private static readonly byte[] Sigma2ResumeNonce = "NCASE_SigmaS2"u8.ToArray();
+
+    /// <inheritdoc />
+    public byte[] GenerateResumptionId() => RandomNumberGenerator.GetBytes(ResumptionIdLength);
+
+    /// <inheritdoc />
+    public byte[] ComputeSigma1ResumeMic(
+        ReadOnlySpan<byte> sharedSecret, ReadOnlySpan<byte> initiatorRandom, ReadOnlySpan<byte> resumptionId) =>
+        ComputeResumeMic(sharedSecret, initiatorRandom, resumptionId, Sigma1ResumeKeyInfo, Sigma1ResumeNonce);
+
+    /// <inheritdoc />
+    public bool VerifySigma1ResumeMic(
+        ReadOnlySpan<byte> sharedSecret,
+        ReadOnlySpan<byte> initiatorRandom,
+        ReadOnlySpan<byte> resumptionId,
+        ReadOnlySpan<byte> resumeMic) =>
+        CryptographicOperations.FixedTimeEquals(
+            ComputeSigma1ResumeMic(sharedSecret, initiatorRandom, resumptionId), resumeMic);
+
+    /// <inheritdoc />
+    public byte[] ComputeSigma2ResumeMic(
+        ReadOnlySpan<byte> sharedSecret, ReadOnlySpan<byte> initiatorRandom, ReadOnlySpan<byte> newResumptionId) =>
+        ComputeResumeMic(sharedSecret, initiatorRandom, newResumptionId, Sigma2ResumeKeyInfo, Sigma2ResumeNonce);
+
+    /// <inheritdoc />
+    public bool VerifySigma2ResumeMic(
+        ReadOnlySpan<byte> sharedSecret,
+        ReadOnlySpan<byte> initiatorRandom,
+        ReadOnlySpan<byte> newResumptionId,
+        ReadOnlySpan<byte> resumeMic) =>
+        CryptographicOperations.FixedTimeEquals(
+            ComputeSigma2ResumeMic(sharedSecret, initiatorRandom, newResumptionId), resumeMic);
+
+    /// <inheritdoc />
+    public CaseSessionKeys DeriveResumedSessionKeys(
+        ReadOnlySpan<byte> sharedSecret, ReadOnlySpan<byte> initiatorRandom, ReadOnlySpan<byte> newResumptionId)
+    {
+        // I2R || R2I || AttestationChallenge = HKDF(IKM = sharedSecret,
+        //   salt = initiatorRandom || resumptionID, info = "SessionResumptionKeys").
+        byte[] salt = Concat(initiatorRandom, newResumptionId);
+        byte[] okm = Hkdf(sharedSecret, salt, SessionResumptionKeysInfo, 3 * KeyLength);
+        return new CaseSessionKeys(okm[..KeyLength], okm[KeyLength..(2 * KeyLength)], okm[(2 * KeyLength)..]);
+    }
+
+    // Resume MIC = AES-CCM tag over empty plaintext keyed by
+    // HKDF(sharedSecret, salt = initiatorRandom || resumptionID, info = <keyInfo>), with the fixed
+    // per-direction nonce and no AAD. See the Matter Core Specification, section 4.14.2.6.
+    private static byte[] ComputeResumeMic(
+        ReadOnlySpan<byte> sharedSecret,
+        ReadOnlySpan<byte> initiatorRandom,
+        ReadOnlySpan<byte> resumptionId,
+        ReadOnlySpan<byte> keyInfo,
+        ReadOnlySpan<byte> nonce)
+    {
+        byte[] salt = Concat(initiatorRandom, resumptionId);
+        byte[] key = Hkdf(sharedSecret, salt, keyInfo, KeyLength);
+        try
+        {
+            using var ccm = new AesCcm(key);
+            var tag = new byte[MicLength];
+            ccm.Encrypt(nonce, ReadOnlySpan<byte>.Empty, Span<byte>.Empty, tag);
+            return tag;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(key);
+        }
+    }
+
+    private static byte[] Hkdf(ReadOnlySpan<byte> ikm, ReadOnlySpan<byte> salt, ReadOnlySpan<byte> info, int length)
+    {
+        var okm = new byte[length];
+        HKDF.DeriveKey(HashAlgorithmName.SHA256, ikm, okm, salt, info);
+        return okm;
+    }
+
+    private static byte[] Concat(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)
+    {
+        var result = new byte[a.Length + b.Length];
+        a.CopyTo(result);
+        b.CopyTo(result.AsSpan(a.Length));
+        return result;
+    }
 }

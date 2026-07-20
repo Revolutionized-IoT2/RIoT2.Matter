@@ -59,6 +59,8 @@ internal sealed class ManagedCaseInitiatorContext : ICaseInitiatorContext
 
     public NodeId PeerNodeId => _peerNodeId;
 
+    public ReadOnlyMemory<byte> SharedSecret => _sharedSecret ?? ReadOnlyMemory<byte>.Empty;
+
     public void AppendToTranscript(ReadOnlySpan<byte> messagePayload) => _transcript.AddRange(messagePayload.ToArray());
     public void NoteSigma1Length(int length) => _sigma1Length = length;
 

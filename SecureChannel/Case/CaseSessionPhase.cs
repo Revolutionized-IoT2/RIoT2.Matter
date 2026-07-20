@@ -6,6 +6,9 @@ public enum CaseSessionPhase
     /// <summary>Sigma2 sent; awaiting Sigma3.</summary>
     AwaitingSigma3,
 
+    /// <summary>Sigma2_Resume sent (session resumption); awaiting the initiator's success StatusReport.</summary>
+    AwaitingResumeStatusReport,
+
     /// <summary>The handshake completed successfully and session keys are available.</summary>
     Established,
 

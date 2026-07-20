@@ -24,6 +24,13 @@ public interface ICaseResponderContext : IDisposable
     /// <summary>The peer node id extracted from the initiator NOC; valid only after a successful Sigma3.</summary>
     NodeId PeerNodeId { get; }
 
+    /// <summary>
+    /// The ECDH shared secret negotiated during the handshake; valid only after
+    /// <see cref="BuildSigma2Encrypted"/>. Persist it in a <see cref="CaseResumptionRecord"/> to enable
+    /// a future resumed session. See the Matter Core Specification, section 4.14.2.6.
+    /// </summary>
+    ReadOnlyMemory<byte> SharedSecret { get; }
+
     /// <summary>Appends a raw handshake message payload to the running transcript hash.</summary>
     void AppendToTranscript(ReadOnlySpan<byte> messagePayload);
 
