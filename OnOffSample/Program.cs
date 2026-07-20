@@ -58,25 +58,19 @@ internal static class Program
 
         using var device = LightingDevice.Build(options);
 
-        // 2a. Persist commissioned fabrics so they survive restarts. Attach right after Build, while the
-        //     manager is still empty: Restore() re-seeds the fabric table (and, via the manager's Changed
-        //     event, the ACL and group keys), then every subsequent change is written back to disk.
-        //     The key MUST be reproducible and device-bound; in production derive it from a TPM/
-        //     secure-element sealed value rather than the serial number.
+        // 2a. Persist commissioned fabrics so this node keeps its identity across restarts. Attach right
+        //     after Build, while the manager is still empty: Restore() re-seeds the fabric table (and, via
+        //     the manager's Changed event, the ACL and group keys), then every subsequent change is written
+        //     back to disk. This is fabric *identity* persistence only; CASE resumption is separate and is
+        //     handled in-process by the host. The seal key MUST be reproducible and device-bound; in
+        //     production derive it from a TPM/secure-element sealed value rather than the serial number.
         string fabricsPath = Path.Combine(AppContext.BaseDirectory, "fabrics.dat");
         string fabricKeyPassword = DeviceBoundSecret(options.Information.SerialNumber);
-
-        // If a fabric was saved from a previous run, ask before resuming it: silently reusing an old
-        // identity can be surprising (e.g. after the controller-side registry was reset independently),
-        // and starting fresh is a legitimate, common choice when re-testing commissioning.
-        bool useSavedFabric = !FileFabricPersistence.HasPersistedFabrics(fabricsPath, fabricKeyPassword)
-            || PromptUseSavedFabric();
 
         using var persistence = FileFabricPersistence.Attach(
             device.Commissioning.Manager,
             path: fabricsPath,
-            keyPassword: fabricKeyPassword,
-            restoreOnAttach: useSavedFabric);
+            keyPassword: fabricKeyPassword);
 
         // 3. Build the onboarding payload + QR string from the SAME passcode used for the verifier.
         var payload = new SetupPayload
@@ -105,6 +99,8 @@ internal static class Program
         };
 
         // 5. Start the host: transport, sessions, Secure Channel (PASE/CASE), Interaction Model, DNS-SD.
+        //    The host owns an in-process CASE resumption store, so an already-commissioned controller can
+        //    resume a prior session via Sigma2_Resume (spec §4.14.2.6) without any wiring here.
         await using var host = new MatterNodeHost(device.Node, device.Commissioning, provisioning, commissionable);
         using var lifetime = new CancellationTokenSource();
         await host.StartAsync(lifetime.Token);
@@ -128,12 +124,11 @@ internal static class Program
 
         // 7. Control from the console.
         PrintHelp();
-        await RunConsoleLoopAsync(device, persistence, lifetime);
+        await RunConsoleLoopAsync(device, lifetime);
         return 0;
     }
 
-    private static async Task RunConsoleLoopAsync(
-        LightingDevice device, FileFabricPersistence persistence, CancellationTokenSource lifetime)
+    private static async Task RunConsoleLoopAsync(LightingDevice device, CancellationTokenSource lifetime)
     {
         while (!lifetime.IsCancellationRequested)
         {
@@ -171,14 +166,6 @@ internal static class Program
                         900, FabricIndex.NoFabric, adminVendor: null);
                     Console.WriteLine("Commissioning window reopened for 900 s.");
                     break;
-                case 'l':
-                    // Manually retry loading fabrics.dat (e.g. after restoring a backup snapshot over it).
-                    // No-ops with a message if the fabric table already has a fabric.
-                    int restored = persistence.TryRestore();
-                    Console.WriteLine(restored > 0
-                        ? $"Restored {restored} fabric(s) from disk."
-                        : "Nothing restored (see log above for why).");
-                    break;
             }
         }
 
@@ -203,35 +190,7 @@ internal static class Program
     }
 
     private static void PrintHelp() =>
-        Console.WriteLine("Keys:  [t] toggle   [o] on   [f] off   [s] show state   [r] reopen pairing   [l] restore fabrics   [h] help   [q] quit");
-
-    /// <summary>
-    /// Asks the operator whether to resume the fabric saved from a previous run, or start this run as an
-    /// uncommissioned device. Blocks on console input (there's nothing useful to do before this decision).
-    /// </summary>
-    private static bool PromptUseSavedFabric()
-    {
-        Console.WriteLine();
-        Console.WriteLine("A saved fabric from a previous run was found on disk.");
-        Console.Write("Resume as that already-commissioned device? [Y/n]: ");
-        while (true)
-        {
-            string? input = Console.ReadLine();
-            if (string.IsNullOrWhiteSpace(input) || input.Trim().Equals("y", StringComparison.OrdinalIgnoreCase))
-            {
-                Console.WriteLine("Resuming saved fabric.");
-                return true;
-            }
-
-            if (input.Trim().Equals("n", StringComparison.OrdinalIgnoreCase))
-            {
-                Console.WriteLine("Starting as a new, uncommissioned device.");
-                return false;
-            }
-
-            Console.Write("Please enter 'y' or 'n': ");
-        }
-    }
+        Console.WriteLine("Keys:  [t] toggle   [o] on   [f] off   [s] show state   [r] reopen pairing   [h] help   [q] quit");
 
     /// <summary>
     /// Derives a reproducible, device-bound key that seals the persisted fabric snapshot. This sample
