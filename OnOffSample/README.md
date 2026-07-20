@@ -193,9 +193,10 @@ Commissioning installs the node's operational credentials — the NOC, the fabri
 the group (IPK) keys — into the Operational Credentials manager. `Program.cs` seals that state to a
 single `fabrics.dat` file so it survives process restarts:
 
+```csharp
 using var device = LightingDevice.Build(options);
 // Attach right after Build, while the manager is still empty: Restore() re-seeds the fabric table // (and, via the manager's Changed event, the ACL and group keys), then every subsequent change is // written back to disk in one AES-256-GCM envelope — no plaintext secrets are stored. using var persistence = FileFabricPersistence.Attach( device.Commissioning.Manager, path: Path.Combine(AppContext.BaseDirectory, "fabrics.dat"), keyPassword: DeviceBoundSecret(options.Information.SerialNumber));
-
+```
 
 The `keyPassword` seals the snapshot and **must be reproducible** across restarts. This sample derives
 it deterministically from the serial number for demonstration; a real device MUST source it from a
@@ -208,102 +209,57 @@ want to re-pair. **Delete `fabrics.dat` to return the node to factory-new.**
 
 ## Device attestation credentials
 
-`SampleAttestation.Load()` provisions the attestation **chain** (PAA → PAI → DAC + key) and the
-**Certification Declaration** *independently*, under `credentials/`. Certificates and the CD are
-accepted as **PEM or DER**, and the DAC key as **PKCS#8 or SEC1** in either encoding — so the
-`connectedhomeip` test files drop in without any `openssl`/`chip-cert` conversion.
+`SampleAttestation.Load()` follows the connectedhomeip **"Creating Matter certificates"** (`chip-cert`)
+process, but implemented in managed .NET so no external tooling is needed. It uses the fixed test
+**root PAA** and **CD-signing** certificates shipped in `Certificates/` as inputs, then mints a
+**PAI**, **DAC** (+ keys), and a matching **Certification Declaration** for the configured
+**VID/PID**, persisting them under `credentials/`.
 
-### Default: self-signed TEST material (first run)
+### Inputs: fixed test material in `Certificates/`
 
-With an empty `credentials/` folder, the sample mints a self-consistent P-256 **TEST** PKI
-(PAA → PAI → DAC) and a matching CD, then persists them:
+These are Matter's own test certificates (the `--ca-*` inputs to `gen-att-cert` and the `--cert`/`--key`
+inputs to `gen-cd` in the guide). They are committed with the sample and never modified:
+Certificates/ ├── Chip-Test-PAA-NoVID-Cert.pem   # root PAA (self-signed, no VID) — trust anchor for the DAC chain ├── Chip-Test-PAA-NoVID-Key.pem    # PAA signing key — signs the minted PAI ├── Chip-Test-CD-Signing-Cert.pem  # CD-signing certificate (well-known test SKI) └── Chip-Test-CD-Signing-Key.pem   # CD-signing key — signs the Certification Declaration
 
-```text
-credentials/
-├── paa.der         # Product Attestation Authority (root)
-├── pai.der         # Product Attestation Intermediate
-├── dac.der         # Device Attestation Certificate
-├── dac-key.pkcs8   # DAC private key
-└── cd.der          # Certification Declaration (CMS), signed by an ephemeral test key
-```
+### Output: minted credentials in `credentials/`
 
-> ⚠️ **These are self-signed TEST credentials.** A production controller (e.g. a real Google Home)
-> validates the DAC chain against the official CSA test PAA and the CD signature against the CSA
-> CD-signing key, so it will **reject** this generated material. See the Matter Core Specification,
-> section 6.2.
+On first run (when the VID/PID-specific files are absent), the sample mints and persists them, keyed
+by the configured **VID `0xFFF2` / PID `0x8001` / device-type `0x0100`**:
+credentials/ ├── test-PAI-FFF2-cert.der            # PAI, signed by the PAA (gen-att-cert --type i, subject-vid only) ├── test-PAI-FFF2-key.pkcs8           # PAI private key ├── test-DAC-FFF2-8001-cert.der       # DAC, signed by the PAI (gen-att-cert --type d, subject-vid + subject-pid) ├── test-DAC-FFF2-8001-key.pkcs8      # DAC private key └── Chip-Test-CD-FFF2-8001.der        # Certification Declaration (CMS), signed by Chip-Test-CD-Signing
+````````markdown
 
-### Recommended: connectedhomeip test credentials (no `chip-cert`)
+This mirrors the guide's commands:
 
-To be accepted by **test-mode commissioners** (`chip-tool`, Home Assistant), drop the `connectedhomeip`
-test files (`credentials/test/…`) into `credentials/`. This node advertises **VID `0xFFF2` / PID
-`0x8001` / device-type `0x0100`**, so use the matching `FFF2-8001` set:
+| Guide command                         | Sample step                                                            |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| `gen-att-cert --type i` (PAI)         | Signed by `Chip-Test-PAA-NoVID`; subject-cn `Matter Test PAI`, subject-vid only. |
+| `gen-att-cert --type d` (DAC)         | Signed by the minted PAI; subject-cn `Matter Test DAC 0`, subject-vid + subject-pid. |
+| `gen-cd` (CD)                         | Signed by `Chip-Test-CD-Signing`; VID/PID/device-type match the advertised values. |
 
-| Copy from `connectedhomeip/credentials/test/…`             | Into `credentials/` as  |
-| ---------------------------------------------------------- | ----------------------- |
-| `attestation/Chip-Test-DAC-FFF2-8001-0008-Cert.der`        | `dac.der`               |
-| `attestation/Chip-Test-PAI-FFF2-8001-Cert.der`             | `pai.der`               |
-| `attestation/Chip-Test-DAC-FFF2-8001-0008-Key.pem`         | `dac-key.pem`           |
-| `certification-declaration/Chip-Test-CD-Signing-Cert.pem`  | `cd-signing-cert.pem`   |
-| `certification-declaration/Chip-Test-CD-Signing-Key.pem`   | `cd-signing-key.pem`    |
+### Changing the VID/PID
 
-Notes:
+`SampleAttestation` regenerates each artifact **only when it is absent**. To mint credentials for a
+different VID/PID:
 
-- The loader accepts **both PEM and DER**, so copy whichever form upstream ships and use the matching
-  target extension (`dac.der`/`dac.pem`, `pai.der`/`pai.pem`). Convert with
-  `chip-cert convert-cert <in>.pem <out>.der --x509-der` if you need a specific form.
-- The DAC certificate and DAC key **must be the same pair** — match the `-0000-` suffix between
-  `…-Cert` and `…-Key`.
-- The CD-signing cert/key are what let the sample regenerate a **CD** whose SubjectKeyIdentifier is the
-  well-known test key that test-mode commissioners trust.
+1. Update `VendorId` / `ProductId` in `SampleAttestation.cs` (and the advertised values in `Program.cs`).
+2. Delete the stale files in `credentials/` so a fresh, matching set is minted on the next run.
 
-### Regenerate the CD after copying
-
-`SampleAttestation` only regenerates `credentials/cd.der` when it is **absent**. After copying the
-CD-signing files, delete any stale `credentials/cd.der` (and `cd.pem`) so a fresh CD is minted for the
-current VID/PID and signed with the test CD-signing key. Alternatively, copy the prebuilt
-`certification-declaration/Chip-Test-CD-<VID>-<PID>.der` → `cd.der`.
-
-### Availability caveat
-
-Upstream ships prebuilt DAC/PAI/CD only for **specific test VID/PID pairs** (for example `FFF1-8000`).
-The sample currently advertises **`FFF2-8001`**, for which there are no upstream files. For a pair
-without upstream credentials, either:
-
-- switch the sample back to a pair that upstream provides (e.g. `FFF1-8000`) in `Program.cs` and
-  `SampleAttestation.cs` before copying, or
-- let `SampleAttestation` **auto-generate** its self-signed test chain for `FFF2-8001` (the default
-  when no device chain is present) — no connectedhomeip files needed.
+The output filenames embed the VID/PID (`test-DAC-<VID>-<PID>-cert.der`), so distinct pairs coexist.
 
 ### Not for Google Home
 
-These are CSA **test** credentials. Real Google Home requires a Google-validated **real** VID, so the
-connectedhomeip test material (any `FFFx` pair) will be rejected during attestation. Use `chip-cert`
-with your real VID/PID for that path.
+These are CSA **test** credentials: the DAC chain roots at the test PAA and the CD is signed with the
+test CD-signing key. Test-mode commissioners (`chip-tool`, Home Assistant) accept them, but a
+production controller (e.g. a real Google Home) requires a Google-validated **real** VID and will
+reject this material. Use `chip-cert` with your real VID/PID for that path. See the Matter Core
+Specification, section 6.2.
 
 ## Project layout
 
-| File                                | Responsibility                                                              |
-| ----------------------------------- | --------------------------------------------------------------------------- |
-| `Program.cs`                        | Entry point: provisioning, node composition, hosting, and the console loop. |
-| `SampleAttestation.cs`              | Generates/loads the TEST DAC/PAI/PAA/CD material under `credentials/`.       |
-| `ConsoleQr.cs`                      | Renders a Matter `MT:` onboarding string as an ASCII QR (via `QRCoder`).     |
-| `RIoT2.Matter.OnOffSample.csproj`   | Project file (net9.0, package/project references).                          |
-| `credentials/`                      | Generated on first run; not required to be committed.                       |
-| `fabrics.dat`                       | Sealed fabric snapshot; written after commissioning. Delete to factory-reset. |
-
-## Troubleshooting
-
-- **Controller can't find the device** — ensure both machines share an IPv6-capable link and that UDP
-  port **5540** and mDNS (UDP **5353**) are not blocked by a firewall.
-- **Commissioning fails at attestation** — expected with the built-in TEST credentials on a production
-  controller; use the `connectedhomeip` test credentials (see [above](#device-attestation-credentials)).
-- **QR looks garbled** — use a UTF-8 capable terminal; the sample sets `Console.OutputEncoding` to UTF-8.
-
-## Related
-
-- [`RIoT2.Matter`](../RIoT2/RIoT2.Matter/README.md) — the portable, managed Matter stack this sample builds on.
-
-> **Note:** a factory-new node auto-opens a commissioning window on start, so the passcode is
-> immediately acceptable. The `Discriminator` in the QR payload must match the value advertised over
-> DNS-SD — both are `0x0F00` in this sample. The manual code carries only the **short discriminator**
-> (the top 4 bits of the 12-bit value), so a controller resolves the node by that reduced form.
+| File                                 | Purpose                                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `Program.cs`                        | The application entry point; hosts the Matter stack and runs the console loop.             |
+| `README.md`                          | You're reading it. Helps you get, build, and run the sample.                              |
+| `SampleAttestation.cs`              | Mints/loads the TEST DAC/PAI/CD material under `credentials/` from the `Certificates/` inputs. |
+| `Certificates/`                     | Fixed test root PAA + CD-signing certs (inputs to credential generation); committed.        |
+| `credentials/`                      | Minted on first run from `Certificates/`; not required to be committed.                     |

@@ -16,4 +16,19 @@
       <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.0" />
     </ItemGroup>
 
+    <ItemGroup>
+      <None Update="Certificates\Chip-Test-CD-Signing-Cert.pem">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Certificates\Chip-Test-CD-Signing-Key.pem">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Certificates\Chip-Test-PAA-NoVID-Cert.pem">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Certificates\Chip-Test-PAA-NoVID-Key.pem">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
 </Project>
