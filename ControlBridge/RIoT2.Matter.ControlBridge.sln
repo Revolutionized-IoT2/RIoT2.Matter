@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37502.11 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RIoT2.Matter.ControlBridge", "RIoT2.Matter.ControlBridge.csproj", "{43C81769-BAF1-9CDE-92A5-8F207480B62A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RIoT2.Matter", "..\RIoT2.Matter.csproj", "{2CD081C6-D373-4222-BFB5-B92160EA200C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{43C81769-BAF1-9CDE-92A5-8F207480B62A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{43C81769-BAF1-9CDE-92A5-8F207480B62A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{43C81769-BAF1-9CDE-92A5-8F207480B62A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{43C81769-BAF1-9CDE-92A5-8F207480B62A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2CD081C6-D373-4222-BFB5-B92160EA200C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2CD081C6-D373-4222-BFB5-B92160EA200C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2CD081C6-D373-4222-BFB5-B92160EA200C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2CD081C6-D373-4222-BFB5-B92160EA200C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {34C536AD-F25E-471A-928A-67E91E4568A5}
+	EndGlobalSection
+EndGlobal

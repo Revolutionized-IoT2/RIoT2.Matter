@@ -1,0 +1,6 @@
+@RIoT2.Matter.Controller_HostAddress = http://localhost:5145
+
+GET {{RIoT2.Matter.Controller_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
