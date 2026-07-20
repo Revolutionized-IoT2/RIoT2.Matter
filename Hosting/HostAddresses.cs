@@ -46,12 +46,18 @@ public static class HostAddresses
                         continue;
                     }
 
-                    // Prefer stable, routable (global/ULA) addresses. Link-local and short-lived temporary
-                    // privacy addresses (finite valid lifetime) are kept only as a last resort.
-                    bool isRoutable = !ip.IsIPv6LinkLocal;
-                    bool isStable = address.AddressValidLifetime == uint.MaxValue; // Infinite lifetime ⇒ not a rotating temp address.
+                    // Temporary/privacy addresses have a finite valid lifetime and rotate: a commissioner
+                    // (notably Google's Matter hub) can latch onto one and then fail once it expires
+                    // mid-session. Exclude them entirely rather than keeping them as a fallback so only
+                    // stable, infinite-lifetime addresses are ever advertised.
+                    bool isStable = address.AddressValidLifetime == uint.MaxValue;
+                    if (!isStable)
+                    {
+                        continue;
+                    }
 
-                    if (isRoutable && isStable)
+                    // Prefer routable (global/ULA) addresses; keep link-local only as a last resort.
+                    if (!ip.IsIPv6LinkLocal)
                     {
                         preferred.Add(ip);
                     }

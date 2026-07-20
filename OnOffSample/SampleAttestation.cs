@@ -23,8 +23,8 @@ namespace RIoT2.Matter.OnOffSample;
 internal static class SampleAttestation
 {
     // Must match the VendorId/ProductId advertised in Program.cs (CSA test vendor 0xFFF1).
-    private const int VendorId = 0xFFF1;
-    private const int ProductId = 0x8000; // aligns with the connectedhomeip FFF1-8000 test attestation set
+    private const int VendorId = 0xFFF2;
+    private const int ProductId = 0x8001; // aligns with the connectedhomeip FFF2-8001 test attestation set
     private const int DeviceTypeId = 0x0100; // On/Off Light
 
     // Matter DN attribute OIDs (Matter Core Specification, section 6.5.6.1).
