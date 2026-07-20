@@ -51,9 +51,10 @@ internal static class Program
             [
                 new NetworkInterface { Name = "WiFi", IsOperational = true, Type = InterfaceType.WiFi },
             ],
-            Profile = LightingProfile.OnOffLight,     // On/Off Light (0x0100), no Level Control
+            Profile = LightingProfile.DimmableLight,  // Dimmable Light (0x0101): adds Level Control for brightness
             NodeLabel = "RIoT2 Demo Light",
             InitialOnOff = false,
+            InitialLevel = 100,
         };
 
         using var device = LightingDevice.Build(options);
@@ -94,7 +95,7 @@ internal static class Program
             Mode = CommissioningMode.Disabled,
             VendorId = options.Information.VendorId,
             ProductId = options.Information.ProductId,
-            DeviceType = StandardDeviceTypes.OnOffLight.Id,
+            DeviceType = StandardDeviceTypes.DimmableLight.Id,
             DeviceName = options.NodeLabel,
         };
 
@@ -128,6 +129,13 @@ internal static class Program
         };
         RenderState(device.OnOff.OnOff, "initial");
 
+        // Level -> console: fires for BOTH console-driven and controller-driven brightness changes.
+        if (device.LevelControl is { } levelControl)
+        {
+            levelControl.CurrentLevelChanged += (_, _) =>
+                RenderLevel(levelControl.CurrentLevel, levelControl.MinLevel, levelControl.MaxLevel);
+        }
+
         // 7. Control from the console.
         PrintHelp();
         await RunConsoleLoopAsync(device, lifetime);
@@ -156,8 +164,21 @@ internal static class Program
                 case 'f':
                     SetOnOffFromConsole(device, false);
                     break;
+                case '+':
+                    AdjustBrightness(device, delta: +25);
+                    break;
+                case '-':
+                    AdjustBrightness(device, delta: -25);
+                    break;
+                case 'b':
+                    PromptBrightness(device);
+                    break;
                 case 's':
                     RenderState(device.OnOff.OnOff, "query");
+                    if (device.LevelControl is { } lc)
+                    {
+                        RenderLevel(lc.CurrentLevel, lc.MinLevel, lc.MaxLevel);
+                    }
                     break;
                 case 'h':
                     PrintHelp();
@@ -196,7 +217,7 @@ internal static class Program
     }
 
     private static void PrintHelp() =>
-        Console.WriteLine("Keys:  [t] toggle   [o] on   [f] off   [s] show state   [r] reopen pairing   [h] help   [q] quit");
+        Console.WriteLine("Keys:  [t] toggle   [o] on   [f] off   [+/-] brightness ±   [b] set brightness %   [s] show state   [r] reopen pairing   [h] help   [q] quit");
 
     /// <summary>
     /// Derives a reproducible, device-bound key that seals the persisted fabric snapshot. This sample
@@ -235,5 +256,47 @@ internal static class Program
         {
             _consoleDrivenChange = false;
         }
+    }
+
+    // Nudge CurrentLevel by delta (in raw level units), clamped into the cluster's Min/Max bounds.
+    private static void AdjustBrightness(LightingDevice device, int delta)
+    {
+        if (device.LevelControl is not { } level)
+        {
+            Console.WriteLine("Brightness is unavailable: build the node with LightingProfile.DimmableLight.");
+            return;
+        }
+
+        int target = Math.Clamp(level.CurrentLevel + delta, level.MinLevel, level.MaxLevel);
+        level.SetCurrentLevel((byte)target);
+    }
+
+    // Prompt for a 0–100 % brightness and map it onto the cluster's Min/Max level range.
+    private static void PromptBrightness(LightingDevice device)
+    {
+        if (device.LevelControl is not { } level)
+        {
+            Console.WriteLine("Brightness is unavailable: build the node with LightingProfile.DimmableLight.");
+            return;
+        }
+
+        Console.Write("Brightness % (0-100): ");
+        string? input = Console.ReadLine();
+        if (!int.TryParse(input, out int percent) || percent is < 0 or > 100)
+        {
+            Console.WriteLine("Ignored: enter a whole number from 0 to 100.");
+            return;
+        }
+
+        int span = level.MaxLevel - level.MinLevel;
+        int target = level.MinLevel + (int)Math.Round(span * (percent / 100.0));
+        level.SetCurrentLevel((byte)Math.Clamp(target, level.MinLevel, level.MaxLevel));
+    }
+
+    private static void RenderLevel(byte level, byte minLevel, byte maxLevel)
+    {
+        int span = maxLevel - minLevel;
+        int percent = span == 0 ? 100 : (int)Math.Round((level - minLevel) * 100.0 / span);
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Level  = {level,3} ({percent}%)  [min {minLevel}, max {maxLevel}]");
     }
 }
