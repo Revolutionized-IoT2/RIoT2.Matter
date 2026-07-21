@@ -50,7 +50,15 @@ public sealed class CommissioningSupport : IDisposable
         Network = network;
 
         // Connect the fail-safe: completing commissioning commits the pending fabric; a timeout rolls it back.
-        _onCommissioningCompleted = (_, _) => manager.Commit();
+        _onCommissioningCompleted = (_, _) =>
+        {
+            manager.Commit();
+
+            // CommissioningComplete must also close any open commissioning window (spec 11.9.7.2). Otherwise
+            // the node keeps advertising commissionable (_matterc._udp, CM=1) and controllers such as Google
+            // Home treat it as not-yet-operational and show it offline immediately after pairing.
+            administratorCommissioning.Revoke();
+        };
         _onFailSafeExpired = (_, _) => manager.Rollback();
         stateMachine.CommissioningCompleted += _onCommissioningCompleted;
         stateMachine.FailSafeExpired += _onFailSafeExpired;
