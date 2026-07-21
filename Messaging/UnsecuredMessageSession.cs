@@ -16,16 +16,25 @@ public sealed class UnsecuredMessageSession : IMessageSession
     /// <param name="transport">The outbound sink bound to the peer.</param>
     /// <param name="remoteMrpConfig">The peer's MRP configuration once known; otherwise the default.</param>
     /// <param name="localNodeId">The source node id to place in outbound headers, if any.</param>
+    /// <param name="peerNodeId">
+    /// The peer's (initiator's) ephemeral node id, echoed as the Destination Node ID on every outbound
+    /// header. On the responder side this MUST be the Source Node ID from the request that opened the
+    /// exchange: an unsecured initiator that sets a Source Node ID (DSIZ) will only accept replies
+    /// addressed back to it, so omitting the destination makes the peer discard our responses and acks
+    /// and retransmit forever (spec §4.4).
+    /// </param>
     /// <param name="counter">The node-global unsecured message counter; a random one is created if omitted.</param>
     public UnsecuredMessageSession(
         IMessageTransport transport,
         ReliableMessageProtocolConfig? remoteMrpConfig = null,
         NodeId? localNodeId = null,
+        NodeId? peerNodeId = null,
         MessageCounter? counter = null)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         RemoteMrpConfig = remoteMrpConfig ?? ReliableMessageProtocolConfig.Default;
         LocalNodeId = localNodeId;
+        PeerNodeId = peerNodeId;
         _counter = counter ?? MessageCounter.CreateRandom();
     }
 
@@ -37,6 +46,9 @@ public sealed class UnsecuredMessageSession : IMessageSession
 
     /// <summary>The source node id emitted in outbound headers, if any.</summary>
     public NodeId? LocalNodeId { get; }
+
+    /// <summary>The peer node id echoed as the Destination Node ID in outbound headers, if any.</summary>
+    public NodeId? PeerNodeId { get; }
 
     /// <inheritdoc />
     /// <remarks>The unsecured session has no peer-activity notion; peers are always treated as active.</remarks>
@@ -59,7 +71,7 @@ public sealed class UnsecuredMessageSession : IMessageSession
             HasPrivacy = false,
             MessageCounter = counter,
             SourceNodeId = LocalNodeId,
-            DestinationNodeId = null,
+            DestinationNodeId = PeerNodeId,
             DestinationGroupId = null,
         };
 

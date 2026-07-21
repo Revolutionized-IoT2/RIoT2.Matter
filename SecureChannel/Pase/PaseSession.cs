@@ -29,6 +29,16 @@ public sealed class PaseSession : ISessionEstablishmentDelegate
     private ushort _peerSessionId;
     private ReliableMessageProtocolConfig _peerSessionParameters = ReliableMessageProtocolConfig.Default;
 
+    // The exact PBKDFParamRequest we bound our current handshake to, and the PBKDFParamResponse we
+    // returned for it. A retransmitted (byte-identical) request must be answered with this same
+    // response so the SPAKE2+ transcript both sides committed to is preserved; regenerating the
+    // responder random / verifier context on a retransmit would invalidate the in-flight handshake.
+    private byte[]? _boundRequestPayload;
+    private byte[]? _boundResponsePayload;
+
+    // The message counter of the request the current handshake is bound to, for duplicate diagnostics.
+    private uint? _boundRequestCounter;
+
     /// <param name="crypto">The SPAKE2+/key-derivation provider.</param>
     /// <param name="verifier">The provisioned SPAKE2+ verifier for the device passcode.</param>
     /// <param name="pbkdfParameters">The provisioned PBKDF iteration count and salt.</param>
@@ -81,12 +91,35 @@ public sealed class PaseSession : ISessionEstablishmentDelegate
 
     private async ValueTask HandlePbkdfParamRequestAsync(ExchangeContext exchange, MatterMessage message, CancellationToken cancellationToken)
     {
+        // Diagnostic: classify this request relative to the handshake we're already bound to. A repeat
+        // of _boundRequestCounter that still reaches here means the session-layer duplicate filter did
+        // NOT absorb it (a dedup gap); a different counter with an identical payload is a peer resend on
+        // a fresh counter; a different payload is a peer restarting PASE.
+        var counter = message.Header.MessageCounter;
+        var payloadMatches = _boundRequestPayload is not null && message.ApplicationPayload.Span.SequenceEqual(_boundRequestPayload);
+        Console.WriteLine(
+            $"[pase] PbkdfParamRequest received (counter={counter}, phase={Phase}, " +
+            $"boundCounter={(_boundRequestCounter is { } b ? b.ToString() : "none")}, " +
+            $"sameCounter={(_boundRequestCounter == counter)}, samePayload={payloadMatches}); dispatching to active session.");
+
         // Reject a second concurrent commissioning attempt on a different exchange.
         if (_exchange is not null && !ReferenceEquals(_exchange, exchange) &&
             Phase is PaseSessionPhase.AwaitingPake1 or PaseSessionPhase.AwaitingPake3)
         {
             await SecureChannelHandler.SendStatusReportAsync(
                 exchange, GeneralStatusCode.Busy, SecureChannelStatusCode.Busy, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // A retransmitted PBKDFParamRequest on the same exchange before Pake1: the peer never saw (or
+        // never acked) our PBKDFParamResponse and is retrying. Re-send the exact response we already
+        // committed to instead of rebuilding state - regenerating the responder random / verifier
+        // context would break the SPAKE2+ transcript the outstanding response is bound to (spec §4.13.2).
+        if (ReferenceEquals(_exchange, exchange) && Phase == PaseSessionPhase.AwaitingPake1 &&
+            _boundRequestPayload is not null && _boundResponsePayload is not null && payloadMatches)
+        {
+            await exchange.SendAsync((byte)SecureChannelOpcode.PbkdfParamResponse, _boundResponsePayload, reliable: true, cancellationToken).ConfigureAwait(false);
+            Console.WriteLine($"[pase] retransmitted PbkdfParamResponse ({_boundResponsePayload.Length} bytes) for duplicate request; still awaiting Pake1.");
             return;
         }
 
@@ -108,7 +141,13 @@ public sealed class PaseSession : ISessionEstablishmentDelegate
         // The verifier context binds to the exact request/response payloads (the SPAKE2+ transcript).
         _verifierContext = _crypto.CreateVerifier(_verifier, _pbkdfParameters, requestPayload, responsePayload);
 
+        // Remember the transcript so a retransmitted request replays this same response (see above).
+        _boundRequestPayload = requestPayload;
+        _boundResponsePayload = responsePayload;
+        _boundRequestCounter = counter;
+
         await exchange.SendAsync((byte)SecureChannelOpcode.PbkdfParamResponse, responsePayload, reliable: true, cancellationToken).ConfigureAwait(false);
+        Console.WriteLine($"[pase] sent PbkdfParamResponse ({responsePayload.Length} bytes, includeParameters={!request.HasPbkdfParameters}); awaiting Pake1.");
         Phase = PaseSessionPhase.AwaitingPake1;
     }
 
@@ -198,6 +237,9 @@ public sealed class PaseSession : ISessionEstablishmentDelegate
         _exchange = null;
         _peerSessionId = 0;
         _peerSessionParameters = ReliableMessageProtocolConfig.Default;
+        _boundRequestPayload = null;
+        _boundResponsePayload = null;
+        _boundRequestCounter = null;
     }
 
     // --- TLV wire format (spec §4.13.1) ---------------------------------------------------------
