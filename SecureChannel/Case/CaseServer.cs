@@ -222,7 +222,8 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
         // TODO: install the operational secure session (local/peer session ids + keys + peer node id)
         // via the session manager before the exchange closes.
         SessionEstablished?.Invoke(this, new CaseSessionEstablishedEventArgs(
-            state.LocalSessionId, state.PeerSessionId, state.FabricIndex, peerNodeId, keys, state.PeerSessionParameters));
+            state.LocalSessionId, state.PeerSessionId, state.FabricIndex, peerNodeId, keys, state.PeerSessionParameters,
+            context.PeerCaseAuthenticatedTags));
     }
 
     private ValueTask HandlePeerStatusReportAsync(ExchangeContext exchange, MatterMessage message, CancellationToken cancellationToken)

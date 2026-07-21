@@ -12,7 +12,8 @@ public sealed class CaseSessionEstablishedEventArgs : EventArgs
         FabricIndex fabricIndex,
         NodeId peerNodeId,
         CaseSessionKeys keys,
-        ReliableMessageProtocolConfig? peerSessionParameters = null)
+        ReliableMessageProtocolConfig? peerSessionParameters = null,
+        IReadOnlyList<uint>? peerCaseAuthenticatedTags = null)
     {
         LocalSessionId = localSessionId;
         PeerSessionId = peerSessionId;
@@ -20,6 +21,7 @@ public sealed class CaseSessionEstablishedEventArgs : EventArgs
         PeerNodeId = peerNodeId;
         Keys = keys;
         PeerSessionParameters = peerSessionParameters ?? ReliableMessageProtocolConfig.Default;
+        PeerCaseAuthenticatedTags = peerCaseAuthenticatedTags ?? System.Array.Empty<uint>();
     }
 
     /// <summary>The responder (local) session id advertised in Sigma2.</summary>
@@ -33,6 +35,9 @@ public sealed class CaseSessionEstablishedEventArgs : EventArgs
 
     /// <summary>The authenticated peer node id from the initiator NOC.</summary>
     public NodeId PeerNodeId { get; }
+
+    /// <summary>The CASE Authenticated Tags carried in the initiator NOC subject.</summary>
+    public IReadOnlyList<uint> PeerCaseAuthenticatedTags { get; }
 
     /// <summary>The derived session keys.</summary>
     public CaseSessionKeys Keys { get; }

@@ -240,6 +240,18 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
             return;
         }
 
+        // TODO(diagnostic): temporary. Trace invoke command paths to confirm CommissioningComplete arrival.
+        if (request.InvokeRequests is { } cmds)
+        {
+            var sec = exchange.Session.Security;
+            foreach (var c in cmds)
+            {
+                Console.WriteLine(
+                    $"[im-invoke] endpoint={c.Path.Endpoint} cluster=0x{c.Path.Cluster.Value:X4} command=0x{c.Path.Command.Value:X2} " +
+                    $"fabricIndex={sec.FabricIndex} peerNodeId={sec.PeerNodeId} timed={request.TimedRequest}");
+            }
+        }
+
         var context = BuildContext(exchange, fabricFiltered: false);
         var response = await _invokeEngine.ExecuteAsync(request, context, cancellationToken).ConfigureAwait(false);
 
@@ -263,6 +275,10 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
 
         // Open the timed window on this exchange; the following Write/Invoke must arrive within it.
         _timedRequests.Open(exchange, request.TimeoutMilliseconds);
+
+        // TODO(diagnostic): temporary.
+        Console.WriteLine(
+            $"[im-timedopen] exchangeId={exchange.ExchangeId} instance={exchange.GetHashCode()} timeoutMs={request.TimeoutMilliseconds}");
 
         // Acknowledge readiness so the client proceeds with the timed action.
         await SendStatusResponseAsync(exchange, InteractionModelStatusCode.Success, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -491,6 +507,11 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
     {
         var hasWindow = _timedRequests.TryConsume(exchange, out var expired);
 
+        // TODO(diagnostic): temporary. Trace the timed-gate decision to confirm timed Write/Invoke pairing.
+        Console.WriteLine(
+            $"[im-timedgate] exchangeId={exchange.ExchangeId} instance={exchange.GetHashCode()} " +
+            $"actionIsTimed={actionIsTimed} hasWindow={hasWindow} expired={expired}");
+
         if (actionIsTimed)
         {
             if (!hasWindow)
@@ -534,6 +555,7 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
             PeerNodeId = security.PeerNodeId,
             AttestationChallenge = security.AttestationChallenge,
             IsFabricFiltered = fabricFiltered,
+            PeerCaseAuthenticatedTags = security.PeerCaseAuthenticatedTags,
         };
     }
 }

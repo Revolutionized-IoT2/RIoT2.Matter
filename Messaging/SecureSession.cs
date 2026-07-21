@@ -49,7 +49,8 @@ public sealed class SecureSession : IDisposable
         ReadOnlySpan<byte> r2iKey,
         ReadOnlySpan<byte> attestationChallenge,
         ReliableMessageProtocolConfig remoteMrpConfig,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IReadOnlyList<uint>? peerCaseAuthenticatedTags = null)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         Type = type;
@@ -60,6 +61,7 @@ public sealed class SecureSession : IDisposable
         PeerNodeId = peerNodeId;
         FabricIndex = fabricIndex;
         RemoteMrpConfig = remoteMrpConfig;
+        PeerCaseAuthenticatedTags = peerCaseAuthenticatedTags ?? System.Array.Empty<uint>();
         _i2rKey = i2rKey.ToArray();
         _r2iKey = r2iKey.ToArray();
         _attestationChallenge = attestationChallenge.ToArray();
@@ -94,6 +96,9 @@ public sealed class SecureSession : IDisposable
 
     /// <summary>The fabric this session belongs to, or <see cref="FabricIndex.NoFabric"/> for PASE.</summary>
     public FabricIndex FabricIndex { get; }
+
+    /// <summary>The CASE Authenticated Tags carried in the peer NOC subject; empty for PASE or when none present.</summary>
+    public IReadOnlyList<uint> PeerCaseAuthenticatedTags { get; }
 
     /// <summary>The peer's negotiated MRP configuration used to drive retransmit timing.</summary>
     public ReliableMessageProtocolConfig RemoteMrpConfig { get; }
