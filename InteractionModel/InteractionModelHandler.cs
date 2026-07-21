@@ -63,6 +63,11 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
 
         var opcode = (InteractionModelOpcode)message.Protocol.ProtocolOpcode;
 
+        // TODO(diagnostic): temporary - remove once the looping post-CASE interaction is identified.
+        Console.WriteLine(
+            $"[im] opcode={opcode} exchangeId={exchange.ExchangeId} initiator={message.Protocol.IsInitiator} " +
+            $"payload={message.ApplicationPayload.Length}B session={exchange.Session.Security.FabricIndex}");
+
         switch (opcode)
         {
             // Requests handled when this node is the responder (server) side of the interaction.
@@ -171,8 +176,24 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
             return;
         }
 
+        // TODO(diagnostic): temporary - remove once the post-CASE read that the commissioner rejects is identified.
+        if (request.AttributeRequests is { } reqPaths)
+        {
+            foreach (var p in reqPaths)
+            {
+                Console.WriteLine(
+                    $"[im-read] path E={p.Endpoint?.ToString() ?? "*"} C={p.Cluster?.ToString() ?? "*"} " +
+                    $"A={p.Attribute?.ToString() ?? "*"} concrete={p.IsConcrete} fabricFiltered={request.FabricFiltered}");
+            }
+        }
+
         var context = BuildContext(exchange, request.FabricFiltered);
         var report = await _readEngine.ExecuteAsync(request, context, cancellationToken).ConfigureAwait(false);
+
+        // TODO(diagnostic): temporary.
+        Console.WriteLine(
+            $"[im-read] report: attributeReports={report.AttributeReports?.Count ?? 0} " +
+            $"eventReports={report.EventReports?.Count ?? 0}");
 
         // A Read's final chunk suppresses the subscriber's StatusResponse (it is terminal); any
         // preceding chunks are flow-controlled by the stream.
@@ -256,6 +277,12 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
             return;
         }
 
+        // TODO(diagnostic): temporary.
+        Console.WriteLine(
+            $"[im-subscribe] keepSubscriptions={request.KeepSubscriptions} fabricFiltered={request.FabricFiltered} " +
+            $"min={request.MinIntervalFloor}s max={request.MaxIntervalCeiling}s " +
+            $"attrPaths={request.AttributeRequests?.Count ?? 0} eventPaths={request.EventRequests?.Count ?? 0}");
+
         // Unless asked to keep them, terminate this subscriber's existing subscriptions on the accessing
         // fabric (spec §8.5.2): the scope is the fabric-scoped subscriber (fabric + node id), not a single
         // session, so a reconnecting controller's stale subscriptions are cleaned up. A PASE subscribe has
@@ -278,6 +305,12 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
         // Prime: run the equivalent read (attributes + events), capturing the initial cursors.
         var readRequest = request.ToReadRequest();
         var primed = await _readEngine.ExecuteAsync(readRequest, context, cancellationToken).ConfigureAwait(false);
+
+        // TODO(diagnostic): temporary.
+        Console.WriteLine(
+            $"[im-subscribe] primed report: attributeReports={primed.AttributeReports?.Count ?? 0} " +
+            $"eventReports={primed.EventReports?.Count ?? 0}");
+
         var initialVersions = Subscription.ExtractVersions(primed);
 
         // Start the event cursor at the highest number already delivered by priming, but never below

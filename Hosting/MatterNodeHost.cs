@@ -252,6 +252,17 @@ public sealed class MatterNodeHost : IAsyncDisposable
         var addresses = new List<IPAddress>(HostAddresses.GetIpv6());
         addresses.AddRange(HostAddresses.GetIpv4());
 
+        Console.WriteLine($"[host] advertising HostName={_hostId:X16}.local Port={UdpMatterTransport.DefaultPort}");
+        foreach (IPAddress addr in addresses)
+        {
+            Console.WriteLine($"[host]   advertised address: {addr} (linkLocal={addr.IsIPv6LinkLocal})");
+        }
+
+        if (addresses.Count == 0)
+        {
+            Console.Error.WriteLine("[host] WARNING: no advertised addresses — SRV will resolve to a hostname with no A/AAAA records; commissioners cannot reach the operational endpoint.");
+        }
+
         var host = new MatterHostInfo
         {
             HostName = new DnsName($"{_hostId:X16}", "local"),

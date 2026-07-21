@@ -398,6 +398,11 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
             _pendingOperationalKey = null;
             ClearPendingRoot();
         }
+
+        // The just-committed fabric is now durable and no longer excluded by ExportSnapshot; signal
+        // outside the lock so persistence re-saves it (AddNOC's earlier snapshot deliberately excluded
+        // the still-uncommitted fabric, which is why the startup save logged "0 fabric(s)").
+        RaiseChanged();
     }
 
     /// <summary>Rolls back the fail-safe-scoped changes: removes the fabric added since arming and clears staging. Drive from FailSafeExpired.</summary>

@@ -23,6 +23,13 @@ public sealed class InboundMessageDispatcher
     // sentinel when the header omits one) so retransmissions from one commissioner are recognised as
     // duplicates without a second peer's counters colliding.
     private readonly ConcurrentDictionary<ulong, MessageReceptionState> _unsecuredReceptionStates = new();
+
+    // The unsecured session per peer must persist across datagrams: multi-message handshakes (PASE,
+    // and especially CASE) key their per-exchange state to a single session instance via the
+    // ExchangeManager. Minting a fresh session per inbound datagram would strand each handshake step
+    // (Sigma1, the Sigma2 ack, Sigma3) on a different ExchangeContext, so the handshake never advances
+    // and the initiator retransmits forever. Keyed by peer source node id like the reception states.
+    private readonly ConcurrentDictionary<ulong, UnsecuredMessageSession> _unsecuredSessions = new();
     private const ulong AnonymousPeerKey = 0UL;
 
     /// <param name="sessions">The session table used to resolve secured datagrams.</param>
@@ -129,15 +136,30 @@ public sealed class InboundMessageDispatcher
                     $"duplicate unsecured message, counter {header.MessageCounter}: re-acknowledging without reprocessing");
             }
 
-            // A fresh wrapper per datagram is safe for state, but it must (a) share the node-global
-            // unsecured outbound counter so our source counters increase monotonically (spec §4.6.2),
-            // and (b) echo the request's Source Node ID back as the Destination Node ID - an unsecured
-            // initiator that set a Source Node ID only accepts replies addressed to it, so omitting the
-            // destination makes the peer discard our responses/acks and retransmit forever (spec §4.4).
-            session = new UnsecuredMessageSession(
-                replyTransport,
-                peerNodeId: header.SourceNodeId,
-                counter: _unsecuredOutboundCounter);
+            // A stable per-peer wrapper: it (a) shares the node-global unsecured outbound counter so our
+            // source counters increase monotonically (spec §4.6.2); (b) echoes the request's Source Node
+            // ID back as the Destination Node ID - an unsecured initiator that set a Source Node ID only
+            // accepts replies addressed to it (spec §4.4); and (c) sets our Source Node ID to the
+            // Destination Node ID the initiator addressed us by, so a CASE initiator can correlate our
+            // Sigma2 to its pending handshake (without it the controller discards Sigma2 and restarts
+            // Sigma1 forever). It MUST persist across datagrams so the ExchangeManager keeps one
+            // ExchangeContext for the whole handshake.
+            session = _unsecuredSessions.GetOrAdd(
+                peerKey,
+                static (_, args) => new UnsecuredMessageSession(
+                    args.replyTransport,
+                    localNodeId: args.localNodeId,
+                    peerNodeId: args.sourceNodeId,
+                    counter: args.counter),
+                (replyTransport, localNodeId: header.DestinationNodeId, sourceNodeId: header.SourceNodeId, counter: _unsecuredOutboundCounter));
+
+            // A cached session is reused across the whole handshake, but its outbound addressing must
+            // track the datagram being answered. The anonymous PASE datagrams that first mint the
+            // session carry no node ids, whereas a later CASE Sigma1 addresses us by our operational
+            // Node ID and supplies the initiator's Source Node ID. Without refreshing, Sigma2 would go
+            // out with the stale (absent) Source/Destination Node IDs, so the controller cannot correlate
+            // it to its pending handshake, acks it at the MRP layer, and restarts Sigma1 forever (spec §4.4).
+            ((UnsecuredMessageSession)session).RefreshAddressing(header.DestinationNodeId, header.SourceNodeId);
             return true;
         }
 
@@ -220,7 +242,7 @@ public sealed class InboundMessageDispatcher
         if (!registration.ReceptionState.TryAccept(header.MessageCounter, out isDuplicate) && !isDuplicate)
         {
             onMessageDropped?.Invoke($"replay check failed for session {header.SessionId}, counter {header.MessageCounter} (outside replay window)");
-            return false; // too old to tell whether it's a duplicate: drop without acking
+            return false;
         }
 
         if (isDuplicate)
@@ -250,6 +272,13 @@ public sealed class InboundMessageDispatcher
 
         message = new MatterMessage(header, protocol, new ReadOnlyMemory<byte>(plaintext)[position..]);
         session = new SecureMessageSession(registration, replyTransport);
+
+        // TODO(diagnostic): temporary - remove once the looping operational request is classified.
+        Console.WriteLine(
+            $"[dispatch] secure accepted: session={header.SessionId} counter={header.MessageCounter} " +
+            $"protocol=0x{protocol.ProtocolId:X4} opcode={protocol.ProtocolOpcode} " +
+            $"exchangeId={protocol.ExchangeId} initiator={protocol.IsInitiator} isDuplicate={isDuplicate}");
+
         return true;
     }
 

@@ -215,7 +215,9 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
         state.Phase = CaseSessionPhase.Established;
 
         // Persist a resumption record so a future Sigma1 from this peer can resume (spec §4.14.2.6).
-        SaveResumptionRecord(state.FabricIndex, peerNodeId, sharedSecret, state.PeerSessionParameters);
+        // The resumptionID MUST be the one we advertised in Sigma2's TBEData2, so the peer's later
+        // Sigma1 resume offer keys against the same record.
+        SaveResumptionRecord(state.FabricIndex, peerNodeId, sharedSecret, state.PeerSessionParameters, context.ResumptionId.ToArray());
 
         // TODO: install the operational secure session (local/peer session ids + keys + peer node id)
         // via the session manager before the exchange closes.
@@ -291,6 +293,13 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
         {
             var candidate = _crypto.ComputeDestinationIdentifier(
                 fabric.IdentityProtectionKey, initiatorRandom, fabric.RootPublicKey, fabric.FabricId, fabric.NodeId);
+
+            // TODO(diagnostic): temporary - remove once CASE DestinationId resolution is confirmed.
+            Console.Error.WriteLine(
+                $"[case] resolve fabric idx={fabric.FabricIndex.Value} nodeId=0x{fabric.NodeId.Value:X16} " +
+                $"fabricId=0x{fabric.FabricId.Value:X16} rootPubLen={fabric.RootPublicKey.Length} ipkLen={fabric.IdentityProtectionKey.Length} " +
+                $"candidate={Convert.ToHexString(candidate)} wanted={Convert.ToHexString(destinationId)} " +
+                $"match={CryptographicOperations.FixedTimeEquals(candidate, destinationId)}");
 
             if (CryptographicOperations.FixedTimeEquals(candidate, destinationId))
             {

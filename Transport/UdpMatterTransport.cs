@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 
@@ -66,24 +67,38 @@ public sealed class UdpMatterTransport : IMatterTransport
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(destination);
 
-        // A dual-mode socket bound to [::] lets the OS pick the reply's source address. For a
-        // link-local (fe80::/10) IPv6 peer - the Matter commissioning case over Wi-Fi/Thread - that
-        // pick can land on a global/ULA address the commissioner never expects, so it silently drops
-        // our reply and keeps retransmitting its PBKDFParamRequest. Pinning the unicast outgoing
-        // interface to the destination's scope id forces the matching link-local source address.
+        // A dual-mode socket bound to [::] lets the OS pick the reply's source address. Two failure
+        // modes follow from that free choice:
+        //   * A link-local (fe80::/10) peer - the commissioning case - needs the matching link-local
+        //     source or it silently drops our reply and keeps retransmitting.
+        //   * An operational (CASE) peer resolved us via mDNS to a specific advertised AAAA (a ULA or
+        //     global). If the kernel egresses from a different source on the same interface (e.g. a
+        //     rotating temporary/privacy address), a strict commissioner (notably Google's Matter hub)
+        //     drops the datagram as coming from an unexpected peer and re-issues its read, so
+        //     CommissioningComplete never arrives.
+        // Pinning IPV6_UNICAST_IF to the destination's interface forces a consistent, stable source
+        // address for both cases. Determine the scope id from the destination when present, otherwise
+        // resolve it from the interface hosting a route to the destination.
         var pinned = false;
-        if (destination.AddressFamily == AddressFamily.InterNetworkV6 &&
-            destination.Address.IsIPv6LinkLocal &&
-            destination.Address.ScopeId != 0)
+        if (destination.AddressFamily == AddressFamily.InterNetworkV6)
         {
-            pinned = PinUnicastInterface(destination.Address.ScopeId);
+            long scopeId = destination.Address.ScopeId;
+            if (scopeId == 0)
+            {
+                scopeId = ResolveScopeIdFor(destination.Address);
+            }
+
+            if (scopeId != 0)
+            {
+                pinned = PinUnicastInterface(scopeId);
+            }
         }
 
         await _socket.SendToAsync(payload, SocketFlags.None, destination, cancellationToken).ConfigureAwait(false);
 
-        // Surface the source address the OS actually selected for this send so a link-local
-        // source/destination mismatch (the silent-drop failure mode above) is visible in the log
-        // without a packet capture. LocalEndPoint reflects the source bound for the last send.
+        // Surface the source address the OS actually selected for this send so a source/destination
+        // mismatch (the silent-drop failure mode above) is visible in the log without a packet capture.
+        // LocalEndPoint reflects the source bound for the last send.
         var source = _socket.LocalEndPoint as IPEndPoint;
         Console.WriteLine(
             $"[UdpMatterTransport] sent {payload.Length} bytes to {destination} " +
@@ -179,5 +194,81 @@ public sealed class UdpMatterTransport : IMatterTransport
             var payload = buffer.AsSpan(0, result.ReceivedBytes).ToArray();
             DatagramReceived?.Invoke(this, new MatterDatagram(payload, (IPEndPoint)result.RemoteEndPoint));
         }
+    }
+
+    /// <summary>
+    /// Finds the interface scope id whose unicast addresses can reach <paramref name="destination"/>,
+
+    /// so a global/ULA operational peer (which carries no scope id in its address) still egresses from
+    /// the interface hosting the advertised source address. Returns 0 when no candidate is found, in
+    /// which case the caller leaves the OS's default source selection in place.
+    /// </summary>
+    // Caches the /64-prefix ? scope-id resolution so the expensive OS interface enumeration
+    // (GetAllNetworkInterfaces, ~tens of milliseconds) runs at most once per prefix per TTL window
+    // instead of on every outbound datagram. Entries expire so a change in interface topology
+    // (a NIC coming up, an address rotating on) is picked up within TTL without a restart.
+    private static readonly TimeSpan ScopeCacheTtl = TimeSpan.FromSeconds(30);
+    private static readonly ConcurrentDictionary<ulong, (long ScopeId, long ExpiresAtTicks)> ScopeIdCache = new();
+
+    private static long ResolveScopeIdFor(IPAddress destination)
+    {
+        // Match on the /64 on-link prefix shared by SLAAC addresses (ULA and global alike).
+        Span<byte> destBytes = stackalloc byte[16];
+        if (!destination.TryWriteBytes(destBytes, out int written) || written != 16)
+        {
+            return 0;
+        }
+
+        // Key the cache by the /64 prefix - the same value the enumeration below matches on.
+        ulong prefixKey = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(destBytes[..8]);
+        long nowTicks = Environment.TickCount64;
+
+        if (ScopeIdCache.TryGetValue(prefixKey, out var cached) && cached.ExpiresAtTicks > nowTicks)
+        {
+            return cached.ScopeId;
+        }
+
+        long scopeId = ResolveScopeIdUncached(destBytes);
+        ScopeIdCache[prefixKey] = (scopeId, nowTicks + (long)ScopeCacheTtl.TotalMilliseconds);
+        return scopeId;
+    }
+
+    private static long ResolveScopeIdUncached(ReadOnlySpan<byte> destBytes)
+    {
+        foreach (System.Net.NetworkInformation.NetworkInterface nic in
+                 System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up ||
+                nic.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
+            {
+                continue;
+            }
+
+            System.Net.NetworkInformation.IPInterfaceProperties props = nic.GetIPProperties();
+            foreach (System.Net.NetworkInformation.UnicastIPAddressInformation addr in props.UnicastAddresses)
+            {
+                IPAddress ip = addr.Address;
+                if (ip.AddressFamily != AddressFamily.InterNetworkV6 || ip.IsIPv6LinkLocal)
+                {
+                    continue;
+                }
+
+                Span<byte> localBytes = stackalloc byte[16];
+                if (ip.TryWriteBytes(localBytes, out int localWritten) && localWritten == 16 &&
+                    localBytes[..8].SequenceEqual(destBytes[..8]))
+                {
+                    try
+                    {
+                        return props.GetIPv6Properties().Index;
+                    }
+                    catch (System.Net.NetworkInformation.NetworkInformationException)
+                    {
+                        return 0;
+                    }
+                }
+            }
+        }
+
+        return 0;
     }
 }

@@ -10,9 +10,9 @@ public static class HostAddresses
     /// <summary>
     /// The local IPv6 unicast addresses to publish as a node's AAAA records via
     /// <see cref="Discovery.Mdns.MatterHostInfo.Addresses"/>. Prefers stable, routable (global/ULA)
-    /// addresses; link-local and temporary/deprecated privacy addresses are used only as a fallback,
-    /// since some commissioners (e.g. Google's Matter hub) connect to a rotating temporary address and
-    /// then fail once it expires.
+    /// addresses; link-local addresses are used only as a fallback. Temporary/privacy addresses are
+    /// excluded entirely, since some commissioners (e.g. Google's Matter hub) connect to a rotating
+    /// temporary address and then fail once it expires.
     /// </summary>
     public static IReadOnlyList<IPAddress> GetIpv6()
     {
@@ -35,8 +35,8 @@ public static class HostAddresses
                     continue;
                 }
 
-                // DuplicateAddressDetectionState and AddressValidLifetime are only supported on Windows.
-                // On other platforms we fall back to advertising every non-deprecated candidate.
+                // DuplicateAddressDetectionState and SuffixOrigin are only supported on Windows.
+                // On other platforms we fall back to advertising every candidate.
                 if (OperatingSystem.IsWindows())
                 {
                     // A deprecated address must never be advertised: a peer that connects to it will fail.
@@ -46,37 +46,26 @@ public static class HostAddresses
                         continue;
                     }
 
-                    // Temporary/privacy addresses have a finite valid lifetime and rotate: a commissioner
+                    // Exclude only genuine temporary/privacy addresses: those rotate and a commissioner
                     // (notably Google's Matter hub) can latch onto one and then fail once it expires
-                    // mid-session. Exclude them entirely rather than keeping them as a fallback so only
-                    // stable, infinite-lifetime addresses are ever advertised.
-                    bool isStable = address.AddressValidLifetime == uint.MaxValue;
-                    if (!isStable)
+                    // mid-session. A privacy address has a randomised interface id (SuffixOrigin.Random);
+                    // a stable SLAAC address (including an RA-derived ULA) has SuffixOrigin.LinkLayerAddress
+                    // or .Link. Keying off the valid lifetime is wrong here: a stable RA-provisioned ULA
+                    // still has a finite (renewable) lifetime and must be advertised.
+                    if (address.SuffixOrigin == SuffixOrigin.Random)
                     {
                         continue;
                     }
+                }
 
-                    // Prefer routable (global/ULA) addresses; keep link-local only as a last resort.
-                    if (!ip.IsIPv6LinkLocal)
-                    {
-                        preferred.Add(ip);
-                    }
-                    else
-                    {
-                        fallback.Add(ip);
-                    }
+                // Prefer routable (global/ULA) addresses; keep link-local only as a last resort.
+                if (!ip.IsIPv6LinkLocal)
+                {
+                    preferred.Add(ip);
                 }
                 else
                 {
-                    // Without lifetime/DAD metadata, still prefer routable (global/ULA) addresses over link-local.
-                    if (!ip.IsIPv6LinkLocal)
-                    {
-                        preferred.Add(ip);
-                    }
-                    else
-                    {
-                        fallback.Add(ip);
-                    }
+                    fallback.Add(ip);
                 }
             }
         }
