@@ -20,6 +20,9 @@ public sealed record SessionSecurity
     /// <summary>The peer's operational node id, or <see cref="NodeId.Unspecified"/> when not on a fabric.</summary>
     public required NodeId PeerNodeId { get; init; }
 
+    /// <summary>The CASE Authenticated Tags carried in the peer NOC subject; empty over PASE/unsecured.</summary>
+    public IReadOnlyList<uint> PeerCaseAuthenticatedTags { get; init; } = System.Array.Empty<uint>();
+
     /// <summary>The session attestation challenge (empty over the unsecured session).</summary>
     public ReadOnlyMemory<byte> AttestationChallenge { get; init; }
 

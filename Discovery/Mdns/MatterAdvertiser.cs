@@ -165,6 +165,14 @@ public sealed class MatterAdvertiser : IAsyncDisposable
         AdvertisedRecordSet next = AdvertisedRecordSet.FromInputs(_inputProvider.GetCurrent());
         _store.Update(next);
 
+        // TODO(diagnostic): temporary. Trace which DNS-SD instances are advertised on each publish so we
+        // can confirm the operational (_matter._udp) service goes out after a fabric is added.
+        var srvNames = next.Records
+            .Where(r => r.Type == DnsRecordType.Srv)
+            .Select(r => r.Name.ToString())
+            .ToArray();
+        Console.WriteLine($"[mdns-advertise] publishing {srvNames.Length} SRV instance(s): {string.Join(", ", srvNames)}");
+
         // Withdraw records that were advertised before but are gone now (the commissionable service after
         // the window closes, or an operational service after a fabric is removed) so peers flush them.
         IReadOnlyList<DnsResourceRecord> removed = Removals(previous, next);

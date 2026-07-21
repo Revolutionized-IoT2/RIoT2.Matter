@@ -190,6 +190,11 @@ public sealed class GeneralCommissioningCluster : Cluster
             _breadcrumb.Value = breadcrumb; // Breadcrumb updated on success (spec §11.9.5.1).
         }
 
+        // TODO(diagnostic): temporary.
+        Console.WriteLine(
+            $"[gencomm] ArmFailSafe expiry={expiryLengthSeconds}s breadcrumb={breadcrumb} " +
+            $"=> succeeded={result.Succeeded} error={result.Error} debug='{result.DebugText}'");
+
         return BuildResponse(new CommandId(ArmFailSafeResponseId), result);
     }
 
@@ -226,6 +231,10 @@ public sealed class GeneralCommissioningCluster : Cluster
         {
             _breadcrumb.Value = 0; // Breadcrumb resets to 0 on completion (spec §11.9.6.1).
         }
+
+        // TODO(diagnostic): temporary.
+        Console.WriteLine(
+            $"[gencomm] CommissioningComplete => succeeded={result.Succeeded} error={result.Error} debug='{result.DebugText}'");
 
         return BuildResponse(new CommandId(CommissioningCompleteResponseId), result);
     }

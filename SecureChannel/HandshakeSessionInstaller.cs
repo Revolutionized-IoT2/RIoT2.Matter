@@ -120,7 +120,8 @@ public sealed class HandshakeSessionInstaller
             e.Keys.R2IKey,
             e.Keys.AttestationChallenge,
             ReliableMessageProtocolConfig.Default, // TODO: use the peer's negotiated session params once parsed.
-            _timeProvider);
+            _timeProvider,
+            e.PeerCaseAuthenticatedTags);
 
         Install(session);
     }

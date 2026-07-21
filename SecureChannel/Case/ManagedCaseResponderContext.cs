@@ -34,6 +34,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
     private byte[]? _initiatorEphPub;
     private byte[]? _sharedSecret;
     private NodeId _peerNodeId;
+    private uint[] _peerCaseAuthenticatedTags = System.Array.Empty<uint>();
 
     public ManagedCaseResponderContext(ResolvedFabric fabric, TimeProvider timeProvider)
     {
@@ -50,6 +51,8 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
     public ReadOnlyMemory<byte> ResponderRandom => _responderRandom;
 
     public NodeId PeerNodeId => _peerNodeId;
+
+    public IReadOnlyList<uint> PeerCaseAuthenticatedTags => _peerCaseAuthenticatedTags;
 
     public ReadOnlyMemory<byte> SharedSecret => _sharedSecret ?? ReadOnlyMemory<byte>.Empty;
 
@@ -106,7 +109,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         }
 
         if (!TryParseTbe(tbe, out byte[] noc, out byte[]? icac, out byte[] signature) ||
-            !TryValidateInitiator(noc, icac, out byte[] initiatorPublicKey, out NodeId peerNodeId))
+            !TryValidateInitiator(noc, icac, out byte[] initiatorPublicKey, out NodeId peerNodeId, out uint[] peerCats))
         {
             return false;
         }
@@ -118,6 +121,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         }
 
         _peerNodeId = peerNodeId;
+        _peerCaseAuthenticatedTags = peerCats;
         return true;
     }
 
@@ -159,10 +163,11 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
     /// the NOC is scoped to this fabric. On success returns the NOC public key (for the Sigma3
     /// signature check) and the authenticated peer node id. See the Matter Core Specification, §4.14.
     /// </summary>
-    private bool TryValidateInitiator(byte[] noc, byte[]? icac, out byte[] publicKey, out NodeId nodeId)
+    private bool TryValidateInitiator(byte[] noc, byte[]? icac, out byte[] publicKey, out NodeId nodeId, out uint[] caseAuthenticatedTags)
     {
         publicKey = [];
         nodeId = default;
+        caseAuthenticatedTags = System.Array.Empty<uint>();
 
         if (!MatterCertificateDecoder.TryDecode(noc, out var nocCertificate) || nocCertificate is null)
         {
@@ -197,6 +202,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
 
         publicKey = nocCertificate.EllipticCurvePublicKey;
         nodeId = peerNodeId;
+        caseAuthenticatedTags = nocCertificate.Subject.CaseAuthenticatedTags.ToArray();
         return true;
     }
 

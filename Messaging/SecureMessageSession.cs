@@ -118,6 +118,7 @@ public sealed class SecureMessageSession : IMessageSession
                 FabricIndex = session.FabricIndex,
                 PeerNodeId = session.PeerNodeId,
                 AttestationChallenge = session.AttestationChallenge.ToArray(),
+                PeerCaseAuthenticatedTags = session.PeerCaseAuthenticatedTags,
             };
         }
     }

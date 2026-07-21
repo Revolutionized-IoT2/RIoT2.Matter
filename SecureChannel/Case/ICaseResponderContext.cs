@@ -23,6 +23,9 @@ public interface ICaseResponderContext : IDisposable
 
     /// <summary>The peer node id extracted from the initiator NOC; valid only after a successful Sigma3.</summary>
     NodeId PeerNodeId { get; }
+
+    /// <summary>The CASE Authenticated Tags carried in the initiator NOC subject; valid only after a successful Sigma3.</summary>
+    IReadOnlyList<uint> PeerCaseAuthenticatedTags { get; }
     /// <summary>
     /// The ECDH shared secret negotiated during the handshake; valid only after
     /// <see cref="BuildSigma2Encrypted"/>. Persist it in a <see cref="CaseResumptionRecord"/> to enable

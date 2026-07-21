@@ -2,6 +2,7 @@ using RIoT2.Matter.DataModel;
 using RIoT2.Matter.Device;
 using RIoT2.Matter.InteractionModel;
 using RIoT2.Matter.Tlv;
+using System.Linq;
 
 namespace RIoT2.Matter.Clusters;
 
@@ -152,6 +153,11 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             _entries.Add(entry);
         }
 
+        // TODO(diagnostic): temporary.
+        Console.WriteLine(
+            $"[acl-add] fabricIndex={entry.FabricIndex} authMode={entry.AuthMode} privilege={entry.Privilege} " +
+            $"subjects=[{string.Join(",", (entry.Subjects ?? System.Array.Empty<ulong>()).Select(s => "0x" + s.ToString("X16")))}]");
+
         EmitEntryEvent(context: null, entry.FabricIndex, AccessControlChangeType.Added, entry);
         IncrementDataVersion();
         return InteractionModelStatusCode.Success;
@@ -211,6 +217,17 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
     public bool GrantsAccess(
         FabricIndex fabric, AccessControlEntryAuthMode authMode, ulong subject,
         EndpointId endpoint, ClusterId cluster, AccessControlEntryPrivilege required)
+        => GrantsAccess(fabric, authMode, subject, System.Array.Empty<uint>(), endpoint, cluster, required);
+
+    /// <summary>
+    /// As <see cref="GrantsAccess(FabricIndex, AccessControlEntryAuthMode, ulong, EndpointId, ClusterId, AccessControlEntryPrivilege)"/>,
+    /// but also matches CASE Authenticated Tag (CAT) subjects against the accessing peer's
+    /// <paramref name="peerCaseAuthenticatedTags"/> carried in its NOC (spec §6.6.2.2).
+    /// </summary>
+    public bool GrantsAccess(
+        FabricIndex fabric, AccessControlEntryAuthMode authMode, ulong subject,
+        IReadOnlyList<uint> peerCaseAuthenticatedTags,
+        EndpointId endpoint, ClusterId cluster, AccessControlEntryPrivilege required)
     {
         lock (_gate)
         {
@@ -221,7 +238,9 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
                     continue;
                 }
 
-                if (Grants(entry.Privilege, required) && SubjectMatches(entry, subject) && TargetMatches(entry, endpoint, cluster))
+                if (Grants(entry.Privilege, required) &&
+                    SubjectMatches(entry, subject, peerCaseAuthenticatedTags) &&
+                    TargetMatches(entry, endpoint, cluster))
                 {
                     return true;
                 }
@@ -653,6 +672,48 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
     private static bool SubjectMatches(AccessControlEntry entry, ulong subject) =>
         entry.Subjects is not { Count: > 0 } subjects || subjects.Contains(subject);
 
+    // The CASE prefix (upper 32 bits) marking a subject value as a CASE Authenticated Tag (spec §6.6.2.2).
+    private const ulong CaseAuthenticatedTagPrefix = 0xFFFF_FFFD_0000_0000UL;
+
+    private static bool SubjectMatches(AccessControlEntry entry, ulong subject, IReadOnlyList<uint> peerCaseAuthenticatedTags)
+    {
+        if (entry.Subjects is not { Count: > 0 } subjects)
+        {
+            return true; // no subject restriction: matches any authenticated peer on the fabric.
+        }
+
+        foreach (var entrySubject in subjects)
+        {
+            // A CAT subject (0xFFFFFFFD_<tag><version>) matches when the peer NOC carries a CAT with the
+            // same 16-bit tag identifier and a version >= the entry's version (spec §6.6.2.2).
+            if ((entrySubject & 0xFFFF_FFFF_0000_0000UL) == CaseAuthenticatedTagPrefix)
+            {
+                var entryCat = (uint)(entrySubject & 0xFFFF_FFFFUL);
+                ushort entryTag = (ushort)(entryCat >> 16);
+                ushort entryVersion = (ushort)(entryCat & 0xFFFF);
+
+                foreach (var peerCat in peerCaseAuthenticatedTags)
+                {
+                    ushort peerTag = (ushort)(peerCat >> 16);
+                    ushort peerVersion = (ushort)(peerCat & 0xFFFF);
+                    if (peerTag == entryTag && peerVersion >= entryVersion)
+                    {
+                        return true;
+                    }
+                }
+
+                continue;
+            }
+
+            if (entrySubject == subject)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool TargetMatches(AccessControlEntry entry, EndpointId endpoint, ClusterId cluster)
     {
         if (entry.Targets is not { Count: > 0 } targets)
@@ -1061,15 +1122,23 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             return true;
         }
 
-        // A CASE session is resolved against the accessing fabric's ACL entries by the node id subject.
-        // TODO: honor CASE Authenticated Tags (CATs) as subjects once the NOC exposes them.
-        return GrantsAccess(
+        // A CASE session is resolved against the accessing fabric's ACL entries by the node id subject
+        // or by a CASE Authenticated Tag carried in the peer NOC.
+        var granted = GrantsAccess(
             context.AccessingFabricIndex,
             AccessControlEntryAuthMode.Case,
             context.PeerNodeId.Value,
+            context.PeerCaseAuthenticatedTags,
             endpoint,
             cluster,
             MapPrivilege(required));
+
+        // TODO(diagnostic): temporary.
+        Console.WriteLine(
+            $"[acl-check] fabricIndex={context.AccessingFabricIndex} peerNodeId=0x{context.PeerNodeId.Value:X16} " +
+            $"cluster=0x{cluster.Value:X4} required={required} => granted={granted}");
+
+        return granted;
     }
 
     private static AccessControlEntryPrivilege MapPrivilege(AccessPrivilege privilege) => privilege switch
