@@ -1,4 +1,5 @@
-﻿using RIoT2.Matter.DataModel;
+﻿using System.Collections.Concurrent;
+using RIoT2.Matter.DataModel;
 
 namespace RIoT2.Matter.Messaging;
 
@@ -13,19 +14,39 @@ public sealed class InboundMessageDispatcher
 {
     private readonly SessionManager _sessions;
     private readonly ExchangeManager _exchangeManager;
+    private readonly MessageCounter _unsecuredOutboundCounter;
     private readonly Action<string>? _onMessageDropped;
+
+    // Duplicate/replay detection for the unsecured session (id 0), which carries PASE/CASE before
+    // secure keys exist. The unsecured counter is node-global and may roll over (spec §4.6.2), so the
+    // window is created with rollover allowed. Keyed by the peer's ephemeral source node id (or a
+    // sentinel when the header omits one) so retransmissions from one commissioner are recognised as
+    // duplicates without a second peer's counters colliding.
+    private readonly ConcurrentDictionary<ulong, MessageReceptionState> _unsecuredReceptionStates = new();
+    private const ulong AnonymousPeerKey = 0UL;
 
     /// <param name="sessions">The session table used to resolve secured datagrams.</param>
     /// <param name="exchangeManager">The exchange layer that receives successfully decoded messages.</param>
+    /// <param name="unsecuredOutboundCounter">
+    /// The node-global outbound counter for the unsecured session (spec §4.6.2). Shared with every
+    /// other unsecured session the node builds so our source message counters increase monotonically
+    /// across datagrams; without a shared counter our replies fall inside the peer's replay window and
+    /// are dropped.
+    /// </param>
     /// <param name="onMessageDropped">
     /// Optional diagnostic callback invoked with a short reason whenever a datagram is silently
     /// dropped (malformed, unknown session, bad MIC, or replayed). Intended for troubleshooting only;
     /// leave null in production since the specification requires these drops to stay silent on the wire.
     /// </param>
-    public InboundMessageDispatcher(SessionManager sessions, ExchangeManager exchangeManager, Action<string>? onMessageDropped = null)
+    public InboundMessageDispatcher(
+        SessionManager sessions,
+        ExchangeManager exchangeManager,
+        MessageCounter unsecuredOutboundCounter,
+        Action<string>? onMessageDropped = null)
     {
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _exchangeManager = exchangeManager ?? throw new ArgumentNullException(nameof(exchangeManager));
+        _unsecuredOutboundCounter = unsecuredOutboundCounter ?? throw new ArgumentNullException(nameof(unsecuredOutboundCounter));
         _onMessageDropped = onMessageDropped;
     }
 
@@ -88,9 +109,35 @@ public sealed class InboundMessageDispatcher
                 return false;
             }
 
-            // A fresh wrapper per datagram is safe: the exchange caches the one that opens it and
-            // reuses it for all replies. TODO: share one node-global unsecured counter (spec §4.6.2).
-            session = new UnsecuredMessageSession(replyTransport);
+            // Replay/duplicate detection for the unsecured session. Unlike the secure path there is no
+            // MIC to authenticate first, but the trust-first window sync still applies: the first
+            // message from a peer anchors its window. A retransmission of an already-accepted counter is
+            // decoded and returned as a duplicate so the exchange layer re-acks it without reprocessing
+            // (spec §4.12.5); a counter too old for the window is dropped outright.
+            var peerKey = header.SourceNodeId?.Value ?? AnonymousPeerKey;
+            var reception = _unsecuredReceptionStates.GetOrAdd(peerKey, static _ => new MessageReceptionState(rolloverAllowed: true));
+            if (!reception.TryAccept(header.MessageCounter, out isDuplicate) && !isDuplicate)
+            {
+                _onMessageDropped?.Invoke(
+                    $"replay check failed for unsecured session, counter {header.MessageCounter} (outside replay window)");
+                return false;
+            }
+
+            if (isDuplicate)
+            {
+                _onMessageDropped?.Invoke(
+                    $"duplicate unsecured message, counter {header.MessageCounter}: re-acknowledging without reprocessing");
+            }
+
+            // A fresh wrapper per datagram is safe for state, but it must (a) share the node-global
+            // unsecured outbound counter so our source counters increase monotonically (spec §4.6.2),
+            // and (b) echo the request's Source Node ID back as the Destination Node ID - an unsecured
+            // initiator that set a Source Node ID only accepts replies addressed to it, so omitting the
+            // destination makes the peer discard our responses/acks and retransmit forever (spec §4.4).
+            session = new UnsecuredMessageSession(
+                replyTransport,
+                peerNodeId: header.SourceNodeId,
+                counter: _unsecuredOutboundCounter);
             return true;
         }
 

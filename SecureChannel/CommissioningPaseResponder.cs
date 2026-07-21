@@ -84,6 +84,14 @@ public sealed class CommissioningPaseResponder : ISessionEstablishmentDelegate, 
             active = _active;
         }
 
+        // Trace every PASE message reaching the responder so a stalled commissioning attempt can be told
+        // apart from one that never arrived: the expected order is PbkdfParamRequest → PasePake1 → PasePake3.
+        // A Busy rejection here means no commissioning window is open; silence means no PASE datagram was
+        // delivered at all (cross-check the "[MatterNodeHost] dropped inbound datagram" diagnostics).
+        Console.WriteLine(active is null
+            ? $"[pase] {opcode} received but NO window open → rejecting with Busy."
+            : $"[pase] {opcode} received; dispatching to active session.");
+
         // No commissioning window is open: the node is not accepting PASE, so reject with Busy.
         return active is null
             ? SecureChannelHandler.SendStatusReportAsync(exchange, GeneralStatusCode.Busy, SecureChannelStatusCode.Busy, cancellationToken: cancellationToken)

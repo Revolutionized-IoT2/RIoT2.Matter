@@ -110,7 +110,23 @@ internal static class Program
             commissionable,
             hostId: StableInstanceId($"host:{options.Information.SerialNumber}"));
         using var lifetime = new CancellationTokenSource();
+
+        // Subscribe BEFORE starting the host: a factory-new node opens its basic commissioning window
+        // inside StartAsync, so hooking the events afterwards would miss that first WindowOpened.
+        TraceCommissioningStages(device.Commissioning);
+
         await host.StartAsync(lifetime.Token);
+
+        // Report the window state that resulted from startup (a factory-new node should be BasicWindowOpen).
+        Console.WriteLine($"[commissioning] startup window status: {device.Commissioning.AdministratorCommissioning.Status}");
+
+        // Subscribes to the commissioning-support lifecycle so each stage of a pairing attempt is logged.
+        // Reading these in order during a Google Home attempt isolates the failure point:
+        //   • WindowOpened but no FabricAdded            → controller never completed PASE (reachability/IPv6) or attestation was rejected.
+        //   • FabricAdded but FabricRemoved/FailSafeExpired before CommissioningCompleted → post-AddNOC failure (CASE, ACL, or attestation revalidation).
+        //   • CommissioningCompleted                     → fully commissioned; the pairing succeeded.
+        //   • WindowClosed before any FabricAdded         → the commissioning window timed out.
+        TraceCommissioningStages(device.Commissioning);
 
         PrintOnboarding(qrPayload, manualCode, provisioning.Passcode, Discriminator);
 
@@ -298,5 +314,32 @@ internal static class Program
         int span = maxLevel - minLevel;
         int percent = span == 0 ? 100 : (int)Math.Round((level - minLevel) * 100.0 / span);
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Level  = {level,3} ({percent}%)  [min {minLevel}, max {maxLevel}]");
+    }
+
+    // Subscribes to the commissioning-support lifecycle so each stage of a pairing attempt is logged.
+    // Reading these in order during a Google Home attempt isolates the failure point:
+    //   • WindowOpened but no FabricAdded            → controller never completed PASE (reachability/IPv6) or attestation was rejected.
+    //   • FabricAdded but FabricRemoved/FailSafeExpired before CommissioningCompleted → post-AddNOC failure (CASE, ACL, or attestation revalidation).
+    //   • CommissioningCompleted                     → fully commissioned; the pairing succeeded.
+    //   • WindowClosed before any FabricAdded         → the commissioning window timed out.
+    private static void TraceCommissioningStages(RIoT2.Matter.Clusters.CommissioningSupport commissioning)
+    {
+        commissioning.AdministratorCommissioning.WindowOpened += (_, e) =>
+            Console.WriteLine($"[commissioning] window OPENED ({e.Status}); node is now commissionable (PASE accepted).");
+
+        commissioning.AdministratorCommissioning.WindowClosed += (_, _) =>
+            Console.WriteLine("[commissioning] window CLOSED (revoked or timed out); node no longer commissionable.");
+
+        commissioning.Manager.FabricAdded += (_, e) =>
+            Console.WriteLine($"[commissioning] AddNOC succeeded: fabric added (index {e.FabricIndex}). PASE + attestation passed.");
+
+        commissioning.Manager.FabricRemoved += (_, e) =>
+            Console.WriteLine($"[commissioning] fabric REMOVED (index {e.FabricIndex}); AddNOC was rolled back.");
+
+        commissioning.StateMachine.CommissioningCompleted += (_, _) =>
+            Console.WriteLine("[commissioning] CommissioningComplete received: pairing SUCCEEDED.");
+
+        commissioning.StateMachine.FailSafeExpired += (_, _) =>
+            Console.WriteLine("[commissioning] fail-safe EXPIRED: the controller aborted before CommissioningComplete (post-AddNOC failure).");
     }
 }

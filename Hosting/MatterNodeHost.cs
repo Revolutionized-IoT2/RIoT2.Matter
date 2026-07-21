@@ -38,6 +38,12 @@ public sealed class MatterNodeHost : IAsyncDisposable
     private readonly ExchangeManager _exchanges = new();
     private readonly ManagedCaseCryptoProvider _caseCrypto = new();
 
+    // The node-global outbound counter for the unsecured session (spec §4.6.2), shared by every
+    // unsecured session we build - the per-datagram reply sessions in the inbound dispatcher and the
+    // per-connection initiator sessions in ConnectAsync - so our source message counters increase
+    // monotonically across all unsecured traffic and never fall inside a peer's replay window.
+    private readonly MessageCounter _unsecuredOutboundCounter = MessageCounter.CreateRandom();
+
     // Shared across the CASE responder and every CASE initiator so a session established in one role
     // can be resumed later (spec §4.14.2.6). Process memory only; not persisted across restarts.
     private readonly ManagedCaseResumptionStore _caseResumption = new();
@@ -94,7 +100,7 @@ public sealed class MatterNodeHost : IAsyncDisposable
         // session and routes the decoded message into the exchange layer. The diagnostic callback
         // surfaces silent-drop reasons (unknown session, bad MIC, replay, etc.) to help troubleshoot
         // handshake/session issues; it never affects on-the-wire behavior.
-        _inbound = new InboundMessageDispatcher(_sessions, _exchanges, onMessageDropped: reason =>
+        _inbound = new InboundMessageDispatcher(_sessions, _exchanges, _unsecuredOutboundCounter, onMessageDropped: reason =>
             Console.Error.WriteLine($"[MatterNodeHost] dropped inbound datagram: {reason}"));
 
         // The controller/initiator counterpart to the Interaction Model handler: originates outbound
@@ -182,7 +188,7 @@ public sealed class MatterNodeHost : IAsyncDisposable
         _installer.Attach(caseClient);
         try
         {
-            var unsecured = new UnsecuredMessageSession(peerTransport, localNodeId: localFabric.NodeId);
+            var unsecured = new UnsecuredMessageSession(peerTransport, localNodeId: localFabric.NodeId, counter: _unsecuredOutboundCounter);
             await caseClient.EstablishAsync(_exchanges, unsecured, peerNodeId, linked.Token).ConfigureAwait(false);
         }
         catch
@@ -220,6 +226,7 @@ public sealed class MatterNodeHost : IAsyncDisposable
         // peer. Malformed, replayed, unauthenticated, or unknown-session datagrams are dropped inside the
         // dispatcher.
         var reply = new EndpointMessageTransport(_transport, datagram.RemoteEndPoint);
+        Console.WriteLine($"[host] inbound datagram from {datagram.RemoteEndPoint} ({datagram.Payload.Length} bytes); reply bound to same endpoint.");
         try
         {
             await _inbound.DispatchAsync(datagram.Payload, reply, _lifetime.Token).ConfigureAwait(false);
@@ -227,6 +234,13 @@ public sealed class MatterNodeHost : IAsyncDisposable
         catch (Exception ex) when ((ex is OperationCanceledException or ObjectDisposedException) && _lifetime.IsCancellationRequested)
         {
             // The node is shutting down; drop the in-flight datagram.
+        }
+        catch (Exception ex)
+        {
+            // A datagram handler faulted (e.g. an encode or transport error while sending a reply).
+            // The receive loop launches this task fire-and-forget, so surface the fault here rather
+            // than letting it become an unobserved exception that stalls the handshake silently.
+            Console.Error.WriteLine($"[MatterNodeHost] datagram dispatch faulted: {ex}");
         }
     }
 
