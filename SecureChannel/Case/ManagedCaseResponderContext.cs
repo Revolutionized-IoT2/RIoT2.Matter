@@ -28,6 +28,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
     private readonly ECDiffieHellman _ephemeral;
     private readonly byte[] _responderEphPub;
     private readonly byte[] _responderRandom;
+    private readonly byte[] _resumptionId;
     private readonly List<byte> _transcript = new();
 
     private byte[]? _initiatorEphPub;
@@ -41,6 +42,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         _ephemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
         _responderEphPub = EncodeUncompressed(_ephemeral.ExportParameters(includePrivateParameters: false).Q);
         _responderRandom = RandomNumberGenerator.GetBytes(32);
+        _resumptionId = RandomNumberGenerator.GetBytes(16);
     }
 
     public ReadOnlyMemory<byte> ResponderEphemeralPublicKey => _responderEphPub;
@@ -50,6 +52,8 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
     public NodeId PeerNodeId => _peerNodeId;
 
     public ReadOnlyMemory<byte> SharedSecret => _sharedSecret ?? ReadOnlyMemory<byte>.Empty;
+
+    public ReadOnlyMemory<byte> ResumptionId => _resumptionId;
 
     public void AppendToTranscript(ReadOnlySpan<byte> messagePayload) => _transcript.AddRange(messagePayload.ToArray());
 
@@ -67,8 +71,28 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
 
         byte[] tbs = BuildTbs(noc, icac, _responderEphPub, _initiatorEphPub);   // signed by this node's NOC key
         byte[] signature = _fabric.OperationalKey.Sign(tbs);
-        byte[] tbe = BuildTbe(noc, icac, signature);
-        return CcmEncrypt(s2k, Sigma2Nonce, tbe);
+
+        // TODO(diagnostic): temporary - remove once CASE Sigma2 interop is confirmed. Verifies the
+        // freshly produced signature against the NOC public key the peer will use, and confirms the
+        // S2K AEAD round-trips. A failure here (rather than at the peer) localises the defect.
+        if (MatterCertificateDecoder.TryDecode(noc, out var selfNoc) && selfNoc is not null)
+        {
+            bool sigOk = VerifyEcdsa(selfNoc.EllipticCurvePublicKey, tbs, signature);
+            Console.Error.WriteLine(
+                $"[case] sigma2 self-check: sigBytes={signature.Length} (expect 64 raw P1363) " +
+                $"nocPubLen={selfNoc.EllipticCurvePublicKey.Length} tbsLen={tbs.Length} signatureVerifies={sigOk}");
+        }
+
+        byte[] tbe = BuildTbe(noc, icac, signature, _resumptionId);
+        byte[] encrypted = CcmEncrypt(s2k, Sigma2Nonce, tbe);
+
+        // TODO(diagnostic): temporary - confirm the S2K schedule round-trips (encrypt then decrypt).
+        bool aeadOk = TryCcmDecrypt(s2k, Sigma2Nonce, encrypted, out _);
+        Console.Error.WriteLine(
+            $"[case] sigma2 self-check: s2kAeadRoundTrips={aeadOk} tbeLen={tbe.Length} encryptedLen={encrypted.Length} " +
+            $"ipkLen={Ipk.Length} transcriptHash={Convert.ToHexString(TranscriptHash())}");
+
+        return encrypted;
     }
 
     /// <inheritdoc />
@@ -215,7 +239,11 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         return buffer.WrittenSpan.ToArray();
     }
 
-    private static byte[] BuildTbe(byte[] noc, byte[]? icac, byte[] signature)
+    // Sigma2 TBEData2 = {1:responderNOC, 2:responderICAC?, 3:signature, 4:resumptionID}. The
+    // resumptionID (field 4) is mandatory (spec §4.14.2.5); omitting it makes a spec-compliant
+    // initiator (e.g. Google Home) decrypt TBEData2, reject the missing required field, silently drop
+    // Sigma2, and restart the handshake with a fresh Sigma1 indefinitely.
+    private static byte[] BuildTbe(byte[] noc, byte[]? icac, byte[] signature, byte[] resumptionId)
     {
         var buffer = new ArrayBufferWriter<byte>();
         var writer = new TlvWriter(buffer);
@@ -227,6 +255,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         }
 
         writer.WriteByteString(TlvTag.ContextSpecific(3), signature);
+        writer.WriteByteString(TlvTag.ContextSpecific(4), resumptionId);
         writer.EndContainer();
         return buffer.WrittenSpan.ToArray();
     }

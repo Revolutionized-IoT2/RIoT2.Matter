@@ -60,6 +60,13 @@ public sealed class ExchangeManager : IDisposable
             if (localRole != ExchangeRole.Responder ||
                 !_unsolicitedHandlers.TryGetValue(message.Protocol.ProtocolId, out var handler))
             {
+                // TODO(diagnostic): temporary - remove once the looping operational request is classified.
+                Console.WriteLine(
+                    $"[exchange] DROPPED unmatched message: session={session.SessionId} " +
+                    $"exchangeId={message.Protocol.ExchangeId} localRole={localRole} " +
+                    $"protocol=0x{message.Protocol.ProtocolId:X4} opcode={message.Protocol.ProtocolOpcode} " +
+                    $"reliable={message.Protocol.IsReliable} hasHandler={_unsolicitedHandlers.ContainsKey(message.Protocol.ProtocolId)}");
+
                 // TODO: unmatched-message policy — a reliable message should still receive a
                 // standalone ack even when dropped. Silently drop for now.
                 return;

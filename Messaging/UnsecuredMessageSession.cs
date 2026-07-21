@@ -45,10 +45,34 @@ public sealed class UnsecuredMessageSession : IMessageSession
     public ReliableMessageProtocolConfig RemoteMrpConfig { get; }
 
     /// <summary>The source node id emitted in outbound headers, if any.</summary>
-    public NodeId? LocalNodeId { get; }
+    public NodeId? LocalNodeId { get; private set; }
 
     /// <summary>The peer node id echoed as the Destination Node ID in outbound headers, if any.</summary>
-    public NodeId? PeerNodeId { get; }
+    public NodeId? PeerNodeId { get; private set; }
+
+    /// <summary>
+    /// Refreshes the outbound addressing from the latest inbound datagram's header. A single unsecured
+    /// session instance is reused for every datagram from one peer so that the reliable exchange state
+    /// persists across a multi-message handshake, but the node ids it echoes must track the request that
+    /// is actually being answered. During commissioning the initial PASE datagrams are anonymous (no
+    /// node ids), whereas a later CASE Sigma1 addresses us by our operational Node ID and carries the
+    /// initiator's Source Node ID; without refreshing, Sigma2 would be sent with the stale (absent)
+    /// Source/Destination Node IDs, so the controller cannot correlate it to its pending handshake,
+    /// acks it at the MRP layer, and restarts Sigma1 forever (spec §4.4). Only non-null values overwrite
+    /// existing addressing, so an anonymous retransmission never clears an address already learned.
+    /// </summary>
+    public void RefreshAddressing(NodeId? localNodeId, NodeId? peerNodeId)
+    {
+        if (localNodeId is not null)
+        {
+            LocalNodeId = localNodeId;
+        }
+
+        if (peerNodeId is not null)
+        {
+            PeerNodeId = peerNodeId;
+        }
+    }
 
     /// <inheritdoc />
     /// <remarks>The unsecured session has no peer-activity notion; peers are always treated as active.</remarks>
