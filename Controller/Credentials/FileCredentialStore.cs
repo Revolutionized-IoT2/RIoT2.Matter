@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using RIoT2.Matter.Controller.Hosting;
 using RIoT2.Matter.Credentials;
 using RIoT2.Matter.DataModel;
 
@@ -197,6 +198,15 @@ public sealed class FileCredentialStore : ICredentialStore
             using var aes = new AesGcm(key, TagLength);
             aes.Decrypt(blob.Nonce, blob.Ciphertext, blob.Tag, plaintext);
             return plaintext;
+        }
+        catch (AuthenticationTagMismatchException ex)
+        {
+            throw new InvalidOperationException(
+                "Failed to decrypt a persisted credential. This almost always means the configured " +
+                $"'{nameof(MatterControllerOptions.CredentialProtectionSecret)}' does not match the secret used when the " +
+                "credential file was written. Restore the original protection secret to recover the fabric, or delete the " +
+                "credential store to bootstrap a new fabric (previously commissioned nodes must then be re-commissioned).",
+                ex);
         }
         finally
         {
