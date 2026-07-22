@@ -50,7 +50,10 @@ public sealed class UdpOperationalSessionFactory : IOperationalSessionFactory
 
         var sessions = new SessionManager(_timeProvider);
         var exchanges = new ExchangeManager(_timeProvider);
-        var dispatcher = new InboundMessageDispatcher(sessions, exchanges);
+        // The node-global unsecured outbound counter (spec §4.6.2) shared by the dispatcher and the
+        // unsecured CASE session so our source counters increase monotonically across datagrams.
+        var unsecuredOutboundCounter = MessageCounter.CreateRandom();
+        var dispatcher = new InboundMessageDispatcher(sessions, exchanges, unsecuredOutboundCounter);
         var endpoint = new UdpMessageEndpoint(dispatcher);
 
         try
@@ -58,7 +61,7 @@ public sealed class UdpOperationalSessionFactory : IOperationalSessionFactory
             endpoint.Start();
 
             var transport = endpoint.CreateTransport(peer);
-            var unsecured = new UnsecuredMessageSession(transport, node.SessionParameters, _identity.ResolvedFabric.NodeId);
+            var unsecured = new UnsecuredMessageSession(transport, node.SessionParameters, _identity.ResolvedFabric.NodeId, counter: unsecuredOutboundCounter);
 
             var localSessionId = sessions.AllocateSessionId();
             var caseClient = new CaseClient(_caseCrypto, _identity.ResolvedFabric, localSessionId);
