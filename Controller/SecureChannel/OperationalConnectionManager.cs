@@ -6,6 +6,7 @@ using RIoT2.Matter.Controller.Administration;
 using RIoT2.Matter.Controller.Credentials;
 using RIoT2.Matter.Controller.Discovery;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Discovery.Mdns;
 
 namespace RIoT2.Matter.Controller.SecureChannel;
@@ -79,9 +80,9 @@ public sealed class OperationalConnectionManager : IOperationalConnectionManager
 
             await EnsureKnownNodeAsync(nodeId, cancellationToken).ConfigureAwait(false);
 
-            // TODO(diagnostic): temporary — remove once reconnect-after-restart is confirmed reliable.
-            // Pinpoints which phase (discovery vs. CASE handshake) consumes the time when a reconnect
-            // is slow/times out, since both are otherwise opaque behind one outer OperationCanceledException.
+            // Diagnostic (gated by MatterTrace): pinpoints which phase (discovery vs. CASE handshake)
+            // consumes the time when a reconnect is slow/times out, since both are otherwise opaque behind
+            // one outer OperationCanceledException.
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             DiscoveredOperationalNode node;
             try
@@ -90,11 +91,11 @@ public sealed class OperationalConnectionManager : IOperationalConnectionManager
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine(
+                MatterTrace.WriteError(() =>
                     $"[OperationalConnectionManager] discovery for node 0x{nodeId.Value:X16} failed after {stopwatch.ElapsedMilliseconds}ms: {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
-            Console.Error.WriteLine(
+            MatterTrace.WriteError(() =>
                 $"[OperationalConnectionManager] discovery for node 0x{nodeId.Value:X16} found {string.Join(",", node.Addresses)}:{node.Port} after {stopwatch.ElapsedMilliseconds}ms; starting CASE handshake.");
 
             stopwatch.Restart();
@@ -107,11 +108,11 @@ public sealed class OperationalConnectionManager : IOperationalConnectionManager
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine(
+                MatterTrace.WriteError(() =>
                     $"[OperationalConnectionManager] CASE handshake for node 0x{nodeId.Value:X16} failed after {stopwatch.ElapsedMilliseconds}ms: {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
-            Console.Error.WriteLine(
+            MatterTrace.WriteError(() =>
                 $"[OperationalConnectionManager] CASE handshake for node 0x{nodeId.Value:X16} completed after {stopwatch.ElapsedMilliseconds}ms.");
 
             _connections[nodeId.Value] = connection;

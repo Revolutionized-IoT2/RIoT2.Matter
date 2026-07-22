@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using RIoT2.Matter.Controller.InteractionModel;
 using RIoT2.Matter.Controller.SecureChannel.Transport;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Discovery.Mdns;
 using RIoT2.Matter.Messaging;
 using RIoT2.Matter.SecureChannel.Case;
@@ -48,10 +49,9 @@ public sealed class UdpOperationalSessionFactory : IOperationalSessionFactory
 
         var candidates = SelectEndpoints(node);
 
-        // TODO(diagnostic): temporary — remove once the IPv6-first fallback is confirmed to actually
-        // attempt every advertised address. Logs the exact candidate order SelectEndpoints produced so
+        // Diagnostic (gated by MatterTrace): logs the exact candidate order SelectEndpoints produced so
         // we can tell whether IPv6 is present and where it sits relative to IPv4.
-        Console.Error.WriteLine(
+        MatterTrace.WriteError(() =>
             $"[UdpOperationalSessionFactory] node 0x{peerNodeId.Value:X16} candidate endpoints (in attempt order): {string.Join(", ", candidates)}");
 
         // The node may advertise multiple addresses (e.g. an IPv6 ULA and an IPv4 address). Only the
@@ -64,23 +64,23 @@ public sealed class UdpOperationalSessionFactory : IOperationalSessionFactory
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // TODO(diagnostic): temporary — pinpoints which endpoint each Sigma1 attempt targets and how
-            // long that specific attempt took. Without this, a swallowed per-candidate failure (below) is
-            // invisible, so a slow multi-candidate run looks like a single fixed-address timeout.
+            // Diagnostic (gated by MatterTrace): pinpoints which endpoint each Sigma1 attempt targets and
+            // how long that specific attempt took. Without this, a swallowed per-candidate failure (below)
+            // is invisible, so a slow multi-candidate run looks like a single fixed-address timeout.
             var attemptStopwatch = System.Diagnostics.Stopwatch.StartNew();
-            Console.Error.WriteLine(
+            MatterTrace.WriteError(() =>
                 $"[UdpOperationalSessionFactory] node 0x{peerNodeId.Value:X16} attempting CASE handshake to {peer} ({peer.AddressFamily}).");
             try
             {
                 var connection = await ConnectToEndpointAsync(node, peer, peerNodeId, cancellationToken).ConfigureAwait(false);
-                Console.Error.WriteLine(
+                MatterTrace.WriteError(() =>
                     $"[UdpOperationalSessionFactory] node 0x{peerNodeId.Value:X16} CASE handshake to {peer} succeeded after {attemptStopwatch.ElapsedMilliseconds}ms.");
                 return connection;
             }
             catch (OperationalReconnectException ex)
             {
                 // Reachability/handshake failure against this address; try the next advertised one.
-                Console.Error.WriteLine(
+                MatterTrace.WriteError(() =>
                     $"[UdpOperationalSessionFactory] node 0x{peerNodeId.Value:X16} CASE handshake to {peer} failed after {attemptStopwatch.ElapsedMilliseconds}ms; trying next candidate: {ex.GetType().Name}: {ex.Message}");
                 lastFailure = ex;
             }
@@ -89,7 +89,7 @@ public sealed class UdpOperationalSessionFactory : IOperationalSessionFactory
                 // A non-OperationalReconnectException (e.g. OperationCanceledException or a socket/bind
                 // error) aborts the whole loop, so later candidates such as IPv6 are never attempted.
                 // Surface it explicitly here to explain why the fallback stopped early.
-                Console.Error.WriteLine(
+                MatterTrace.WriteError(() =>
                     $"[UdpOperationalSessionFactory] node 0x{peerNodeId.Value:X16} CASE handshake to {peer} threw {ex.GetType().Name} after {attemptStopwatch.ElapsedMilliseconds}ms; aborting remaining candidates: {ex.Message}");
                 throw;
             }
@@ -118,7 +118,7 @@ public sealed class UdpOperationalSessionFactory : IOperationalSessionFactory
             sessions,
             exchanges,
             unsecuredOutboundCounter,
-            onMessageDropped: reason => Console.Error.WriteLine(
+            onMessageDropped: reason => MatterTrace.WriteError(() =>
                 $"[UdpOperationalSessionFactory] node 0x{peerNodeId.Value:X16} via {peer} dropped inbound datagram: {reason}"));
         var endpoint = new UdpMessageEndpoint(dispatcher);
 
