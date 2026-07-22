@@ -233,6 +233,7 @@ public sealed class UdpMatterTransport : IMatterTransport
 
     private static long ResolveScopeIdUncached(ReadOnlySpan<byte> destBytes)
     {
+        Span<byte> localBytes = stackalloc byte[16];
         foreach (System.Net.NetworkInformation.NetworkInterface nic in
                  System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
         {
@@ -251,7 +252,6 @@ public sealed class UdpMatterTransport : IMatterTransport
                     continue;
                 }
 
-                Span<byte> localBytes = stackalloc byte[16];
                 if (ip.TryWriteBytes(localBytes, out int localWritten) && localWritten == 16 &&
                     localBytes[..8].SequenceEqual(destBytes[..8]))
                 {
