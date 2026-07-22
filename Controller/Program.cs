@@ -1,5 +1,6 @@
 ﻿using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
+using RIoT2.Matter.Controller;
 using RIoT2.Matter.Controller.Administration;
 using RIoT2.Matter.Controller.Commissioning;
 using RIoT2.Matter.Controller.Credentials;
@@ -9,12 +10,23 @@ using RIoT2.Matter.Controller.Onboarding;
 using RIoT2.Matter.Controller.SecureChannel;
 using RIoT2.Matter.Controller.InteractionModel;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.SecureChannel.Pase;
 using Scalar.AspNetCore;
 using RIoT2.Matter.Controller.UiCompat;
 using Microsoft.AspNetCore.Http;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Decide up-front whether verbose troubleshooting traces are emitted. Done before the host starts so
+// the first commissioning-window / dropped-datagram traces honor the choice. When enabled, route the
+// library's verbose output into MatterTrace so the whole stack honors the same --diagnostics /
+// CONTROLLER_DIAGNOSTICS switch as the controller's own output.
+Diagnostics.Configure(args);
+if (Diagnostics.Enabled)
+{
+    MatterTrace.Enable(new DelegateMatterDiagnostics(Diagnostics.Trace, Diagnostics.TraceError));
+}
 
 // Bind the backend options from configuration (section "MatterController").
 builder.Services.Configure<MatterControllerOptions>(
