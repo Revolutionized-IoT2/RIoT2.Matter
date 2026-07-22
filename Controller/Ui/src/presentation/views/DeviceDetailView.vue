@@ -27,11 +27,11 @@
                             <v-row dense>
                                 <v-col cols="6" md="4">
                                     <div class="text-caption">Vendor</div>
-                                    <div>{{ device.detail.vendorName ?? device.detail.vendorId ?? '—' }}</div>
+                                    <div>{{ device.detail.vendorName ?? device.detail.vendorId ?? 'â€”' }}</div>
                                 </v-col>
                                 <v-col cols="6" md="4">
                                     <div class="text-caption">Product</div>
-                                    <div>{{ device.detail.productName ?? device.detail.productId ?? '—' }}</div>
+                                    <div>{{ device.detail.productName ?? device.detail.productId ?? 'â€”' }}</div>
                                 </v-col>
                                 <v-col cols="6" md="4">
                                     <div class="text-caption">Node ID</div>
@@ -39,11 +39,11 @@
                                 </v-col>
                                 <v-col cols="6" md="4">
                                     <div class="text-caption">Serial number</div>
-                                    <div>{{ device.detail.serialNumber ?? '—' }}</div>
+                                    <div>{{ device.detail.serialNumber ?? 'â€”' }}</div>
                                 </v-col>
                                 <v-col cols="6" md="4">
                                     <div class="text-caption">Software version</div>
-                                    <div>{{ device.detail.softwareVersion ?? '—' }}</div>
+                                    <div>{{ device.detail.softwareVersion ?? 'â€”' }}</div>
                                 </v-col>
                             </v-row>
                         </v-card-text>

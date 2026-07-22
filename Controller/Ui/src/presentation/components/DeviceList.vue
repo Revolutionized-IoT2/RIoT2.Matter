@@ -53,7 +53,7 @@ const selected = ref<DeviceSummary | null>(null)
 
 function subtitle (device: DeviceSummary): string {
     const parts = [device.vendorName, device.productName].filter(Boolean)
-    return parts.length ? parts.join(' · ') : device.nodeId
+    return parts.length ? parts.join(' \u2014 ') : device.nodeId
 }
 
 function reachabilityColor (device: DeviceSummary): string {

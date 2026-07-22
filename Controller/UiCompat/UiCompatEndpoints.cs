@@ -10,7 +10,9 @@ using RIoT2.Matter.Controller.InteractionModel;
 using RIoT2.Matter.Controller.Onboarding;
 using RIoT2.Matter.Controller.SecureChannel;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.InteractionModel;
 using RIoT2.Matter.SecureChannel.Pase;
+using RIoT2.Matter.Tlv;
 
 namespace RIoT2.Matter.Controller.UiCompat;
 
@@ -83,16 +85,30 @@ public static class UiCompatEndpoints
             using var timeout = LinkedTimeout(ct, defaultTimeout);
             var endpoints = await ReadEndpointsAsync(connections, id, timeout.Token).ConfigureAwait(false);
 
+            // Prefer live Basic Information (cluster 0x28 on endpoint 0) for identity/metadata, falling
+            // back to the persisted registry record when the node did not report a value.
+            var basic = endpoints
+                .FirstOrDefault(e => e.EndpointId == 0)?.Clusters
+                .FirstOrDefault(c => c.ClusterId == 0x28)?.Attributes;
+
+            var vendorId = BasicInt(basic, 2) ?? (record.VendorId is { } rv ? (int)rv.Value : null);
+            var productId = BasicInt(basic, 4) ?? record.ProductId;
+            var vendorName = BasicString(basic, 1);
+            var productName = BasicString(basic, 3);
+            var name = BasicString(basic, 5) ?? record.Label ?? $"Node {record.NodeId.Value}";
+            var softwareVersion = BasicString(basic, 10);
+            var serialNumber = BasicString(basic, 15);
+
             var detail = new UiDeviceDetail(
                 record.NodeId.Value.ToString(),
-                record.Label ?? $"Node {record.NodeId.Value}",
-                record.VendorId?.Value.ToString(),
-                record.ProductId?.ToString(),
+                name,
+                vendorName,
+                productName,
                 await ProbeReachabilityAsync(connections, id, ct).ConfigureAwait(false),
-                record.VendorId is { } v ? (int)v.Value : null,
-                record.ProductId,
-                null,
-                null,
+                vendorId,
+                productId,
+                serialNumber,
+                softwareVersion,
                 endpoints);
 
             // Start streaming live attribute reports for this device onto /api/events (once per node).
@@ -165,7 +181,7 @@ public static class UiCompatEndpoints
                     return Results.Ok(new UiCommissioningResult(string.Empty, false, "Invalid onboarding payload."));
                 }
 
-                var node = await FindTargetAsync(discovery, request.InstanceName, parsed, timeout.Token).ConfigureAwait(false);
+                var node = await FindTargetAsync(discovery, request.InstanceName, parsed, logger, timeout.Token).ConfigureAwait(false);
                 if (node is null)
                 {
                     return Results.Ok(new UiCommissioningResult(string.Empty, false, "Target device was not discovered."));
@@ -421,9 +437,31 @@ public static class UiCompatEndpoints
             foreach (var eid in endpointIds)
             {
                 var servers = await client.ReadServerListAsync(new EndpointId(eid), ct).ConfigureAwait(false);
+
+                // Wildcard-read every attribute on this endpoint (cluster + attribute wildcarded), then
+                // group the reports by cluster so each UiClusterInfo carries its live attribute values.
+                var reports = await connection.InteractionClient.ReadAttributesAsync(
+                    new[] { new AttributePathIB { Endpoint = new EndpointId(eid) } }, ct).ConfigureAwait(false);
+
+                var byCluster = reports
+                    .Select(r => r.AttributeData)
+                    .Where(d => d is { Path.Cluster: not null, Path.Attribute: not null })
+                    .GroupBy(d => d!.Value.Path.Cluster!.Value.Value)
+                    .ToDictionary(
+                        g => (long)g.Key,
+                        g => (IReadOnlyDictionary<string, object?>)g.ToDictionary(
+                            d => d!.Value.Path.Attribute!.Value.Value.ToString(),
+                            d => DecodeAttribute(d!.Value.Data)));
+
                 var clusters = servers
-                    .Select(cluster => new UiClusterInfo(cluster, null, new Dictionary<string, object?>()))
+                    .Select(cluster => new UiClusterInfo(
+                        cluster,
+                        null,
+                        byCluster.TryGetValue(cluster, out var attrs)
+                            ? attrs
+                            : new Dictionary<string, object?>()))
                     .ToArray();
+
                 endpoints.Add(new UiEndpointInfo(eid, null, clusters));
             }
 
@@ -434,6 +472,42 @@ public static class UiCompatEndpoints
             // Unreachable node: return identity-only detail so the UI still renders.
             return Array.Empty<UiEndpointInfo>();
         }
+    }
+
+    // Decodes a captured attribute TLV element into a JSON-friendly value for the UI. Handles the
+    // common scalar types; unknown/container values fall back to a hex dump so nothing is silently lost.
+    private static object? DecodeAttribute(ReadOnlyMemory<byte> data)
+    {
+        if (data.IsEmpty)
+        {
+            return null;
+        }
+
+        var reader = new TlvReader(data.Span);
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        if (reader.IsNull)
+        {
+            return null;
+        }
+
+        return reader.Type switch
+        {
+            TlvElementType.BooleanFalse or TlvElementType.BooleanTrue => reader.GetBoolean(),
+            TlvElementType.UnsignedInteger1 or TlvElementType.UnsignedInteger2
+                or TlvElementType.UnsignedInteger4 or TlvElementType.UnsignedInteger8 => reader.GetUnsignedInteger(),
+            TlvElementType.SignedInteger1 or TlvElementType.SignedInteger2
+                or TlvElementType.SignedInteger4 or TlvElementType.SignedInteger8 => reader.GetSignedInteger(),
+            TlvElementType.FloatingPoint4 or TlvElementType.FloatingPoint8 => reader.GetDouble(),
+            TlvElementType.Utf8String1 or TlvElementType.Utf8String2
+                or TlvElementType.Utf8String4 or TlvElementType.Utf8String8 => reader.GetUtf8String(),
+            TlvElementType.ByteString1 or TlvElementType.ByteString2
+                or TlvElementType.ByteString4 or TlvElementType.ByteString8 => Convert.ToHexString(reader.GetByteString()),
+            _ => Convert.ToHexString(data.Span),
+        };
     }
 
     private static (SetupPasscode? Passcode, ushort? Discriminator) ParseOnboarding(UiOnboardingPayload onboarding)
@@ -467,38 +541,52 @@ public static class UiCompatEndpoints
         IMatterNodeDiscovery discovery,
         string? instanceName,
         CommissioningParameters parameters,
+        ILogger logger,
         CancellationToken ct)
     {
-        await foreach (var node in discovery.DiscoverCommissionableNodesAsync(cancellationToken: ct).ConfigureAwait(false))
+        try
         {
-            // Prefer an explicit instance match when the UI supplied one.
-            if (!string.IsNullOrEmpty(instanceName))
+            await foreach (var node in discovery.DiscoverCommissionableNodesAsync(cancellationToken: ct).ConfigureAwait(false))
             {
-                if (node.InstanceName == instanceName)
+                logger.LogInformation(
+                    "Discovery saw commissionable node '{Instance}' (discriminator {Discriminator}); " +
+                    "target instance '{TargetInstance}', long {Long}, short {Short}.",
+                    node.InstanceName, node.Discriminator, instanceName,
+                    parameters.LongDiscriminator, parameters.ShortDiscriminator);
+
+                // Prefer an explicit instance match when the UI supplied one.
+                if (!string.IsNullOrEmpty(instanceName))
+                {
+                    if (node.InstanceName == instanceName)
+                    {
+                        return node;
+                    }
+
+                    continue;
+                }
+
+                if (node.Discriminator is not { } advertised)
+                {
+                    continue;
+                }
+
+                // QR codes carry the full 12-bit discriminator; match it exactly.
+                if (parameters.LongDiscriminator is { } longDiscriminator && advertised == longDiscriminator)
                 {
                     return node;
                 }
 
-                continue;
+                // Manual codes carry only the 4-bit short discriminator (upper nibble); match on that.
+                if (parameters.LongDiscriminator is null &&
+                    (byte)((advertised >> 8) & 0x0F) == parameters.ShortDiscriminator)
+                {
+                    return node;
+                }
             }
-
-            if (node.Discriminator is not { } advertised)
-            {
-                continue;
-            }
-
-            // QR codes carry the full 12-bit discriminator; match it exactly.
-            if (parameters.LongDiscriminator is { } longDiscriminator && advertised == longDiscriminator)
-            {
-                return node;
-            }
-
-            // Manual codes carry only the 4-bit short discriminator (upper nibble); match on that.
-            if (parameters.LongDiscriminator is null &&
-                (byte)((advertised >> 8) & 0x0F) == parameters.ShortDiscriminator)
-            {
-                return node;
-            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            logger.LogInformation("Discovery window elapsed before a matching commissionable node appeared.");
         }
 
         return null;
@@ -523,5 +611,28 @@ public static class UiCompatEndpoints
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
         return cts;
+    }
+
+    // Reads a Basic Information attribute (by attribute id) from an already-decoded attribute map.
+    private static string? BasicString(IReadOnlyDictionary<string, object?>? attributes, int attributeId) =>
+        attributes is not null && attributes.TryGetValue(attributeId.ToString(), out var value)
+            ? value as string
+            : null;
+
+    private static int? BasicInt(IReadOnlyDictionary<string, object?>? attributes, int attributeId)
+    {
+        if (attributes is null || !attributes.TryGetValue(attributeId.ToString(), out var value) || value is null)
+        {
+            return null;
+        }
+
+        // DecodeAttribute yields ulong for unsigned TLV integers (VendorID/ProductID are uint16).
+        return value switch
+        {
+            ulong u => (int)u,
+            long l => (int)l,
+            int i => i,
+            _ => null,
+        };
     }
 }
