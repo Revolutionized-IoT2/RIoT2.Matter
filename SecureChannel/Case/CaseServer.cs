@@ -302,7 +302,6 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
 
             bool match = CryptographicOperations.FixedTimeEquals(candidate, destinationId);
 
-            // TODO(diagnostic): temporary - remove once CASE DestinationId resolution is confirmed.
             if (MatterTrace.Enabled)
             {
                 // Copy the ref-like span into a heap array so it can be captured by the trace lambda.

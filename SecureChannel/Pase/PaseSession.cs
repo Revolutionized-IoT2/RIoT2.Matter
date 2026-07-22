@@ -1,7 +1,8 @@
-﻿using System.Buffers;
-using System.Security.Cryptography;
+﻿using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Messaging;
 using RIoT2.Matter.Tlv;
+using System.Buffers;
+using System.Security.Cryptography;
 
 namespace RIoT2.Matter.SecureChannel.Pase;
 
@@ -97,7 +98,7 @@ public sealed class PaseSession : ISessionEstablishmentDelegate
         // a fresh counter; a different payload is a peer restarting PASE.
         var counter = message.Header.MessageCounter;
         var payloadMatches = _boundRequestPayload is not null && message.ApplicationPayload.Span.SequenceEqual(_boundRequestPayload);
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[pase] PbkdfParamRequest received (counter={counter}, phase={Phase}, " +
             $"boundCounter={(_boundRequestCounter is { } b ? b.ToString() : "none")}, " +
             $"sameCounter={(_boundRequestCounter == counter)}, samePayload={payloadMatches}); dispatching to active session.");
@@ -119,7 +120,7 @@ public sealed class PaseSession : ISessionEstablishmentDelegate
             _boundRequestPayload is not null && _boundResponsePayload is not null && payloadMatches)
         {
             await exchange.SendAsync((byte)SecureChannelOpcode.PbkdfParamResponse, _boundResponsePayload, reliable: true, cancellationToken).ConfigureAwait(false);
-            Console.WriteLine($"[pase] retransmitted PbkdfParamResponse ({_boundResponsePayload.Length} bytes) for duplicate request; still awaiting Pake1.");
+            MatterTrace.Write(() => $"[pase] retransmitted PbkdfParamResponse ({_boundResponsePayload.Length} bytes) for duplicate request; still awaiting Pake1.");
             return;
         }
 
@@ -147,7 +148,7 @@ public sealed class PaseSession : ISessionEstablishmentDelegate
         _boundRequestCounter = counter;
 
         await exchange.SendAsync((byte)SecureChannelOpcode.PbkdfParamResponse, responsePayload, reliable: true, cancellationToken).ConfigureAwait(false);
-        Console.WriteLine($"[pase] sent PbkdfParamResponse ({responsePayload.Length} bytes, includeParameters={!request.HasPbkdfParameters}); awaiting Pake1.");
+        MatterTrace.Write(() => $"[pase] sent PbkdfParamResponse ({responsePayload.Length} bytes, includeParameters={!request.HasPbkdfParameters}); awaiting Pake1.");
         Phase = PaseSessionPhase.AwaitingPake1;
     }
 

@@ -1,3 +1,4 @@
+using RIoT2.Matter.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -77,7 +78,7 @@ public sealed class FileFabricPersistence : IDisposable
     {
         if (_manager.Fabrics.Count > 0)
         {
-            Console.Error.WriteLine(
+            MatterTrace.WriteError(() =>
                 $"[FileFabricPersistence] restore skipped: the fabric table already has {_manager.Fabrics.Count} fabric(s).");
             return 0;
         }
@@ -90,13 +91,6 @@ public sealed class FileFabricPersistence : IDisposable
         lock (_ioGate)
         {
             var snapshots = ReadSnapshotsFromDisk(_path, _keyPassword);
-
-            // TODO(diagnostic): temporary - remove once fabric persistence across restarts is confirmed reliable.
-            /*
-            Console.Error.WriteLine(snapshots is null
-                ? $"[FileFabricPersistence] no persisted fabrics file at '{_path}'."
-                : $"[FileFabricPersistence] restored {snapshots.Count} fabric(s) from '{_path}'.");
-            */
 
             if (snapshots is { Count: > 0 })
             {
@@ -129,8 +123,8 @@ public sealed class FileFabricPersistence : IDisposable
     private void Save()
     {
         var snapshots = _manager.ExportSnapshot(_keyPassword);
-        // TODO(diagnostic): temporary - remove once fabric persistence across restarts is confirmed reliable.
-        Console.Error.WriteLine($"[FileFabricPersistence] saving {snapshots.Count} fabric(s) to '{_path}'.");
+
+        MatterTrace.WriteError(() => $"[FileFabricPersistence] saving {snapshots.Count} fabric(s) to '{_path}'.");
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(snapshots, SerializerOptions);
         try
         {
