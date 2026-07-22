@@ -187,6 +187,39 @@ device.OnOff.OnOff = !device.OnOff.OnOff; // toggle
 
 With `chip-tool` you can pair from the manual code directly (digits only, no hyphens):
 
+### Defining the device in the Google Home Developer Console
+
+Google Home will **not** commission a device whose VID/PID it doesn't recognize. Because this sample
+advertises the CSA **test** vendor id (`0xFFF1`) with product id `0x8000` and mints TEST attestation
+credentials, you must register a matching Matter integration in the
+[Google Home Developer Console](https://console.home.google.com) before pairing. Do this once per
+Google account/project.
+
+1. Sign in at <https://console.home.google.com> with the same Google account used by the Google Home
+   app on your phone.
+2. Create (or open) a **project**, then open **Matter → Add Matter integration** (also called
+   *Create your Matter integration*).
+3. In **Setup**, give the integration a name and continue.
+4. In **Develop**, enter the device identifiers **exactly matching** what the sample advertises:
+   - **Vendor ID (VID):** `0xFFF1` — select the *Test VID* option (Google exposes `0xFFF1`–`0xFFF4`
+     for development).
+   - **Product ID (PID):** `0x8000`.
+   > These must equal `LightingDeviceOptions.Information.VendorId` / `ProductId` in `Program.cs`. If
+   > you change them there, update the console entry (and the minted credentials) to match.
+5. In **Setup and branding**, set a **product name** and (optionally) a device icon. The device type is
+   an **On/Off Light** (`0x0100`).
+6. **Save** the integration.
+7. On your phone, ensure the Google Home app and the device running the sample are on the **same LAN**
+   with **IPv6** enabled, and that your Android device meets Google's minimum requirements for
+   developer/test devices.
+8. Allow a few minutes for the new integration to propagate, then commission the device as in the
+   steps above (**Add device → Matter → scan the QR** or enter the manual code).
+
+> **Test-only material:** the sample's DAC/PAI chain roots at the CSA **test** PAA, so it is accepted
+> only when the integration is registered under a **Test VID**. It will be rejected by a production
+> attestation flow. For anything beyond local development, obtain production credentials with a
+> CSA-allocated VID and register a production integration.
+
 ### Persisting fabrics across restarts
 
 Commissioning installs the node's operational credentials — the NOC, the fabric entry, its ACL, and
