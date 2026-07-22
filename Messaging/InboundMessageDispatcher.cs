@@ -1,5 +1,7 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
+using System.Collections.Concurrent;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.SecureChannel;
 
 namespace RIoT2.Matter.Messaging;
 
@@ -7,8 +9,10 @@ namespace RIoT2.Matter.Messaging;
 /// The inbound counterpart to the secure send path: decodes a received datagram, resolves its
 /// session, decrypts and replay-checks secured messages, and routes the decoded message to the
 /// <see cref="ExchangeManager"/>. Malformed, unauthenticated, replayed, or unknown-session messages
-/// are silently dropped, as the specification requires. See the Matter Core Specification,
-/// sections 4.6–4.9.
+/// are dropped as the specification requires; a message that references a secure session we cannot
+/// serve is additionally answered with an unsecured Secure Channel StatusReport so the peer
+/// re-establishes CASE instead of retrying a dead session. See the Matter Core Specification,
+/// sections 4.6–4.10.
 /// </summary>
 public sealed class InboundMessageDispatcher
 {
@@ -41,9 +45,9 @@ public sealed class InboundMessageDispatcher
     /// are dropped.
     /// </param>
     /// <param name="onMessageDropped">
-    /// Optional diagnostic callback invoked with a short reason whenever a datagram is silently
-    /// dropped (malformed, unknown session, bad MIC, or replayed). Intended for troubleshooting only;
-    /// leave null in production since the specification requires these drops to stay silent on the wire.
+    /// Optional diagnostic callback invoked with a short reason whenever a datagram is dropped
+    /// (malformed, unknown session, bad MIC, or replayed). Intended for troubleshooting only; leave
+    /// null in production since the specification requires these drops to stay silent on the wire.
     /// </param>
     public InboundMessageDispatcher(
         SessionManager sessions,
@@ -165,19 +169,24 @@ public sealed class InboundMessageDispatcher
 
         if (!_sessions.TryGetSecureSession(header.SessionId, out var registration))
         {
-            // TODO: unknown session — reply with an unsecured StatusReport(CloseSession) so the peer
-            // tears down and re-establishes, rather than silently dropping.
+            // The peer is using a secure session we no longer have - the common case after we restart
+            // and lose all in-RAM sessions while the controller still holds the old keys. Silently
+            // dropping leaves the controller retransmitting against a dead session until it declares us
+            // offline. Reply with an unsecured Secure Channel StatusReport(SessionNotFound) so the peer
+            // tears the session down and re-establishes CASE immediately (spec §4.10.1.7).
             _onMessageDropped?.Invoke($"unknown session id {header.SessionId} (no installed session with that local id)");
+            SendSessionNotFoundReport(header, replyTransport, _unsecuredOutboundCounter, _onMessageDropped);
             return false;
         }
 
-        return TryDecodeSecure(datagram, headerLength, header, registration, replyTransport, out session, out message, out isDuplicate, _onMessageDropped);
+        return TryDecodeSecure(datagram, headerLength, header, registration, replyTransport, out session, out message, out isDuplicate, _unsecuredOutboundCounter, _onMessageDropped);
     }
 
     private static bool TryDecodeSecure(
         ReadOnlyMemory<byte> datagram, int headerLength, MessageHeader header,
         SecureSessionRegistration registration, IMessageTransport replyTransport,
-        out IMessageSession session, out MatterMessage message, out bool isDuplicate, Action<string>? onMessageDropped)
+        out IMessageSession session, out MatterMessage message, out bool isDuplicate,
+        MessageCounter unsecuredOutboundCounter, Action<string>? onMessageDropped)
     {
         session = null!;
         message = null!;
@@ -194,7 +203,7 @@ public sealed class InboundMessageDispatcher
         ReadOnlyMemory<byte> frame = datagram;
 
         // Message privacy: the counter/node-id region of the header is obfuscated with AES-CTR
-        // (spec �4.8). Recover it into a private copy before anything else, then re-decode the now
+        // (spec §4.8). Recover it into a private copy before anything else, then re-decode the now
         // cleartext header. The field sizes come from the un-obfuscated message-flags byte, so the
         // header length computed above is already correct; only the field values were hidden. The MIC
         // that seeds the privacy nonce is the message's own trailing MIC, which privacy leaves intact.
@@ -228,13 +237,18 @@ public sealed class InboundMessageDispatcher
         byte securityFlags = MatterMessageCodec.GetSecurityFlags(header);
         NodeId nonceSource = header.SourceNodeId ?? secure.PeerNodeId;
 
-        // 1. Authenticate + decrypt. A bad MIC means drop (spec �4.7).
+        // 1. Authenticate + decrypt. A bad MIC means we cannot trust the frame (spec §4.7). This also
+        // happens when a peer reuses a stale session whose local id collided with a freshly installed
+        // session after a restart: the id resolves but the keys differ, so decryption fails. Signal the
+        // peer to drop and re-establish rather than dropping silently and letting it retry until we look
+        // offline.
         if (!MessageSecurity.TryDecrypt(
                 secure.DecryptKey, securityFlags, header.MessageCounter, nonceSource,
                 aad, ciphertextWithMic, out byte[] plaintext))
         {
             onMessageDropped?.Invoke(
                 $"decryption/authentication failed (bad MIC or wrong key) for session {header.SessionId}, counter {header.MessageCounter}");
+            SendSessionNotFoundReport(header, replyTransport, unsecuredOutboundCounter, onMessageDropped);
             return false;
         }
 
@@ -272,14 +286,62 @@ public sealed class InboundMessageDispatcher
 
         message = new MatterMessage(header, protocol, new ReadOnlyMemory<byte>(plaintext)[position..]);
         session = new SecureMessageSession(registration, replyTransport);
-
-        // TODO(diagnostic): temporary - remove once the looping operational request is classified.
-        Console.WriteLine(
-            $"[dispatch] secure accepted: session={header.SessionId} counter={header.MessageCounter} " +
-            $"protocol=0x{protocol.ProtocolId:X4} opcode={protocol.ProtocolOpcode} " +
-            $"exchangeId={protocol.ExchangeId} initiator={protocol.IsInitiator} isDuplicate={isDuplicate}");
-
         return true;
+    }
+
+    /// <summary>
+    /// Sends an unsecured Secure Channel <c>StatusReport(FAILURE, SessionNotFound)</c> back to the peer
+    /// that addressed a secure session we cannot serve (unknown local id, or an installed id whose keys
+    /// no longer match after a restart). This is the standard way to tell a controller its operational
+    /// session is dead so it re-runs CASE at once, instead of retransmitting against the stale session
+    /// until it marks us offline. Sent on the unsecured session (id 0) since we hold no keys for the
+    /// referenced session, and addressed back to the initiator by swapping the inbound node ids. It is
+    /// best-effort: a send failure is swallowed because this is itself a recovery hint and must never
+    /// throw out of the receive path (spec §4.10.1.7).
+    /// </summary>
+    private static void SendSessionNotFoundReport(
+        in MessageHeader inbound, IMessageTransport replyTransport,
+        MessageCounter unsecuredOutboundCounter, Action<string>? onMessageDropped)
+    {
+        try
+        {
+            var report = new SecureChannelStatusReport
+            {
+                GeneralCode = GeneralStatusCode.Failure,
+                ProtocolId = MatterProtocolId.SecureChannel,
+                ProtocolCode = (ushort)SecureChannelStatusCode.SessionNotFound,
+            };
+
+            var protocol = new ProtocolHeader
+            {
+                IsInitiator = true,
+                IsReliable = false,
+                ProtocolId = MatterProtocolId.SecureChannel,
+                ProtocolOpcode = (byte)SecureChannelOpcode.StatusReport,
+                ExchangeId = inbound.SessionId, // a fresh, self-originated exchange; not correlated to any of ours
+            };
+
+            var header = new MessageHeader
+            {
+                Version = 0,
+                SessionId = SessionManager.UnsecuredSessionId,
+                SessionType = SessionType.Unicast,
+                IsControlMessage = false,
+                HasPrivacy = false,
+                MessageCounter = unsecuredOutboundCounter.Next(),
+                SourceNodeId = inbound.DestinationNodeId,
+                DestinationNodeId = inbound.SourceNodeId,
+                DestinationGroupId = null,
+            };
+
+            var buffer = new ArrayBufferWriter<byte>();
+            MatterMessageCodec.Encode(buffer, header, protocol, report.ToArray());
+            _ = replyTransport.SendAsync(buffer.WrittenMemory, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            onMessageDropped?.Invoke($"failed to send SessionNotFound StatusReport: {ex.Message}");
+        }
     }
 
     private static bool IsMalformed(Exception ex) =>
