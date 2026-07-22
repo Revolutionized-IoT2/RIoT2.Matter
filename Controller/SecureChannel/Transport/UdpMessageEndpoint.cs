@@ -44,7 +44,32 @@ public sealed class UdpMessageEndpoint : IAsyncDisposable
     public async ValueTask SendToAsync(ReadOnlyMemory<byte> message, IPEndPoint peer, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(peer);
-        await _socket.SendToAsync(message, SocketFlags.None, peer, cancellationToken).ConfigureAwait(false);
+
+        // The socket is a dual-mode IPv6 socket (see the constructor). Datagrams to an IPv4 peer must be
+        // addressed with an IPv4-mapped IPv6 address (::ffff:a.b.c.d); handing SendToAsync a native
+        // AddressFamily.InterNetwork endpoint on an IPv6 socket fails, so the frame never reaches the
+        // peer and the CASE handshake times out with no reply. Map IPv4 destinations before sending.
+        if (peer.Address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            peer = new IPEndPoint(peer.Address.MapToIPv6(), peer.Port);
+        }
+
+        // TODO(diagnostic): temporary — remove once the CASE handshake is confirmed reliable. MRP
+        // retransmits are fire-and-forget (ReliableMessageManager swallows the task), so a failing send
+        // is otherwise invisible and looks identical to a peer that never replies. Confirm bytes leave
+        // the socket, from which local port, to which (mapped) destination.
+        try
+        {
+            int sent = await _socket.SendToAsync(message, SocketFlags.None, peer, cancellationToken).ConfigureAwait(false);
+            Console.Error.WriteLine(
+                $"[UdpMessageEndpoint] sent {sent} bytes from {_socket.LocalEndPoint} to {peer}.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"[UdpMessageEndpoint] send from {_socket.LocalEndPoint} to {peer} failed: {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
     }
 
     /// <summary>Creates a per-peer outbound transport bound to <paramref name="peer"/>.</summary>
@@ -54,6 +79,10 @@ public sealed class UdpMessageEndpoint : IAsyncDisposable
     {
         var buffer = new byte[MaxDatagramSize];
         var anyRemote = new IPEndPoint(IPAddress.IPv6Any, 0);
+
+        // TODO(diagnostic): temporary — remove once the CASE handshake is confirmed reliable. Confirms
+        // the receive loop is actually running and on which local port replies are expected.
+        Console.Error.WriteLine($"[UdpMessageEndpoint] receive loop started on {_socket.LocalEndPoint}.");
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -66,14 +95,22 @@ public sealed class UdpMessageEndpoint : IAsyncDisposable
             {
                 return;
             }
-            catch (SocketException)
+            catch (SocketException ex)
             {
                 // A transient receive error (e.g. an ICMP port-unreachable) must not kill the loop.
+                // TODO(diagnostic): temporary — on Windows a datagram to a closed/unreachable UDP port
+                // surfaces here as WSAECONNRESET on the next receive; logging it distinguishes "peer not
+                // listening / unroutable destination" from "peer simply silent".
+                Console.Error.WriteLine(
+                    $"[UdpMessageEndpoint] receive on {_socket.LocalEndPoint} raised {ex.SocketErrorCode} ({ex.Message}); continuing.");
                 continue;
             }
 
             // Copy the datagram out of the shared buffer before the next receive overwrites it.
             var datagram = buffer.AsMemory(0, result.ReceivedBytes).ToArray();
+            // TODO(diagnostic): temporary — confirms an inbound datagram (e.g. Sigma2) actually arrived.
+            Console.Error.WriteLine(
+                $"[UdpMessageEndpoint] received {result.ReceivedBytes} bytes on {_socket.LocalEndPoint} from {result.RemoteEndPoint}.");
             var replyTransport = CreateTransport((IPEndPoint)result.RemoteEndPoint);
 
             try

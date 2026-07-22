@@ -151,6 +151,9 @@ public sealed class Commissioner : ICommissioner
                             NodeId = nodeId,
                             FabricId = fabric.FabricId,
                             FabricIndex = fabricIndex,
+                            VendorId = node.VendorId,
+                            ProductId = node.ProductId,
+                            Label = node.DeviceName,
                         },
                         cancellationToken)
                     .ConfigureAwait(false);
