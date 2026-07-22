@@ -1,3 +1,4 @@
+using RIoT2.Matter.Diagnostics;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
@@ -100,7 +101,7 @@ public sealed class UdpMatterTransport : IMatterTransport
         // mismatch (the silent-drop failure mode above) is visible in the log without a packet capture.
         // LocalEndPoint reflects the source bound for the last send.
         var source = _socket.LocalEndPoint as IPEndPoint;
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[UdpMatterTransport] sent {payload.Length} bytes to {destination} " +
             $"(source {source?.ToString() ?? "unknown"}, interfacePinned={pinned}).");
     }
@@ -126,15 +127,12 @@ public sealed class UdpMatterTransport : IMatterTransport
             // byte-swapped value yields an out-of-range index (WSAEINVAL / InvalidArgument).
             _socket.SetSocketOption(SocketOptionLevel.IPv6, IPv6UnicastInterface, (int)scopeId);
             Interlocked.Exchange(ref _pinnedScopeId, scopeId);
-            Console.WriteLine($"[UdpMatterTransport] pinned outgoing interface to scope {scopeId}.");
+            MatterTrace.Write(() => $"[UdpMatterTransport] pinned outgoing interface to scope {scopeId}.");
             return true;
         }
         catch (SocketException ex)
         {
-            // Degrade gracefully: keep the OS default source selection rather than failing the send,
-            // but log loudly - a failed pin is the prime suspect when a link-local peer never receives
-            // our reply and keeps retransmitting.
-            Console.Error.WriteLine(
+            MatterTrace.WriteError(() =>
                 $"[UdpMatterTransport] FAILED to pin outgoing interface to scope {scopeId}: " +
                 $"{ex.SocketErrorCode}. Replies may egress with a non-matching source address and be dropped.");
             return false;

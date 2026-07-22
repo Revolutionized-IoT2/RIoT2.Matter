@@ -1,5 +1,6 @@
 using RIoT2.Matter.DataModel;
 using RIoT2.Matter.Device;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.InteractionModel;
 using RIoT2.Matter.Tlv;
 using System.Linq;
@@ -154,7 +155,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
         }
 
         // TODO(diagnostic): temporary.
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[acl-add] fabricIndex={entry.FabricIndex} authMode={entry.AuthMode} privilege={entry.Privilege} " +
             $"subjects=[{string.Join(",", (entry.Subjects ?? System.Array.Empty<ulong>()).Select(s => "0x" + s.ToString("X16")))}]");
 
@@ -1134,7 +1135,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             MapPrivilege(required));
 
         // TODO(diagnostic): temporary.
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[acl-check] fabricIndex={context.AccessingFabricIndex} peerNodeId=0x{context.PeerNodeId.Value:X16} " +
             $"cluster=0x{cluster.Value:X4} required={required} => granted={granted}");
 

@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using RIoT2.Matter.DataModel;
 using RIoT2.Matter.Device;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Messaging;
 
 namespace RIoT2.Matter.InteractionModel;
@@ -64,7 +65,7 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
         var opcode = (InteractionModelOpcode)message.Protocol.ProtocolOpcode;
 
         // TODO(diagnostic): temporary - remove once the looping post-CASE interaction is identified.
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[im] opcode={opcode} exchangeId={exchange.ExchangeId} initiator={message.Protocol.IsInitiator} " +
             $"payload={message.ApplicationPayload.Length}B session={exchange.Session.Security.FabricIndex}");
 
@@ -294,7 +295,7 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
         }
 
         // TODO(diagnostic): temporary.
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[im-subscribe] keepSubscriptions={request.KeepSubscriptions} fabricFiltered={request.FabricFiltered} " +
             $"min={request.MinIntervalFloor}s max={request.MaxIntervalCeiling}s " +
             $"attrPaths={request.AttributeRequests?.Count ?? 0} eventPaths={request.EventRequests?.Count ?? 0}");

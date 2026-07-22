@@ -2,6 +2,7 @@
 using System.Security.Cryptography;
 using RIoT2.Matter.Credentials;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Tlv;
 
 namespace RIoT2.Matter.SecureChannel.Case;
@@ -78,10 +79,10 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         // TODO(diagnostic): temporary - remove once CASE Sigma2 interop is confirmed. Verifies the
         // freshly produced signature against the NOC public key the peer will use, and confirms the
         // S2K AEAD round-trips. A failure here (rather than at the peer) localises the defect.
-        if (MatterCertificateDecoder.TryDecode(noc, out var selfNoc) && selfNoc is not null)
+        if (MatterTrace.Enabled && MatterCertificateDecoder.TryDecode(noc, out var selfNoc) && selfNoc is not null)
         {
             bool sigOk = VerifyEcdsa(selfNoc.EllipticCurvePublicKey, tbs, signature);
-            Console.Error.WriteLine(
+            MatterTrace.WriteError(() =>
                 $"[case] sigma2 self-check: sigBytes={signature.Length} (expect 64 raw P1363) " +
                 $"nocPubLen={selfNoc.EllipticCurvePublicKey.Length} tbsLen={tbs.Length} signatureVerifies={sigOk}");
         }
@@ -90,10 +91,13 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         byte[] encrypted = CcmEncrypt(s2k, Sigma2Nonce, tbe);
 
         // TODO(diagnostic): temporary - confirm the S2K schedule round-trips (encrypt then decrypt).
-        bool aeadOk = TryCcmDecrypt(s2k, Sigma2Nonce, encrypted, out _);
-        Console.Error.WriteLine(
-            $"[case] sigma2 self-check: s2kAeadRoundTrips={aeadOk} tbeLen={tbe.Length} encryptedLen={encrypted.Length} " +
-            $"ipkLen={Ipk.Length} transcriptHash={Convert.ToHexString(TranscriptHash())}");
+        if (MatterTrace.Enabled)
+        {
+            bool aeadOk = TryCcmDecrypt(s2k, Sigma2Nonce, encrypted, out _);
+            MatterTrace.WriteError(() =>
+                $"[case] sigma2 self-check: s2kAeadRoundTrips={aeadOk} tbeLen={tbe.Length} encryptedLen={encrypted.Length} " +
+                $"ipkLen={Ipk.Length} transcriptHash={Convert.ToHexString(TranscriptHash())}");
+        }
 
         return encrypted;
     }
