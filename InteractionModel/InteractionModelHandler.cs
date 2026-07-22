@@ -247,7 +247,7 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
             var sec = exchange.Session.Security;
             foreach (var c in cmds)
             {
-                Console.WriteLine(
+                MatterTrace.Write(() =>
                     $"[im-invoke] endpoint={c.Path.Endpoint} cluster=0x{c.Path.Cluster.Value:X4} command=0x{c.Path.Command.Value:X2} " +
                     $"fabricIndex={sec.FabricIndex} peerNodeId={sec.PeerNodeId} timed={request.TimedRequest}");
             }
@@ -323,8 +323,7 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
         var readRequest = request.ToReadRequest();
         var primed = await _readEngine.ExecuteAsync(readRequest, context, cancellationToken).ConfigureAwait(false);
 
-        // TODO(diagnostic): temporary.
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[im-subscribe] primed report: attributeReports={primed.AttributeReports?.Count ?? 0} " +
             $"eventReports={primed.EventReports?.Count ?? 0}");
 
@@ -508,8 +507,8 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
     {
         var hasWindow = _timedRequests.TryConsume(exchange, out var expired);
 
-        // TODO(diagnostic): temporary. Trace the timed-gate decision to confirm timed Write/Invoke pairing.
-        Console.WriteLine(
+        // Trace the timed-gate decision to confirm timed Write/Invoke pairing.
+        MatterTrace.Write(() =>
             $"[im-timedgate] exchangeId={exchange.ExchangeId} instance={exchange.GetHashCode()} " +
             $"actionIsTimed={actionIsTimed} hasWindow={hasWindow} expired={expired}");
 
