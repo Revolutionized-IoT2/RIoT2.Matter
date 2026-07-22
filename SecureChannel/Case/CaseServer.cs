@@ -91,9 +91,13 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
             return;
         }
 
-        // Type 1 resumption: honour a valid resumption offer with Sigma2_Resume (spec §4.14.2.6). A
-        // missing store, unknown resumptionID, or failed MIC falls through to a full handshake (Type 2).
+        // Type 1 resumption (spec §4.14.2.6) is not offered: resumed sessions were failing to decrypt
+        // against real controllers (bad MIC on the first inbound packet), causing the controller to
+        // churn through new sessions until it marked the node offline. The spec makes resumption
+        // optional for the responder, so we always fall through to a full Sigma1/Sigma2/Sigma3
+        // handshake, which is known-good here.
         if (sigma1.HasResumption &&
+            false &&
             TryBuildSigma2Resume(sigma1, out byte[] resumePayload, out CaseHandshakeState? resumeState))
         {
             _handshakes[exchange] = resumeState;
@@ -346,7 +350,7 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
         writer.WriteByteString(TlvTag.ContextSpecific(2), sigma2ResumeMic);   // sigma2ResumeMIC
         writer.WriteUnsignedInteger(TlvTag.ContextSpecific(3), responderSessionId);
 
-        // responderSessionParams (field 4): advertise this node's MRP config for the resumed session.
+        // responderSessionParams (field 4: advertise this node's MRP config for the resumed session.
         SessionParametersCodec.Write(writer, TlvTag.ContextSpecific(4), ReliableMessageProtocolConfig.Default);
 
         writer.EndContainer();
