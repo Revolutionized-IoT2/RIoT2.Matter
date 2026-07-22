@@ -36,6 +36,7 @@ internal sealed class UdpCommissioningSessionContext : ICommissioningSessionCont
 
     private readonly SessionManager _sessions;
     private readonly ExchangeManager _exchanges;
+    private readonly MessageCounter _unsecuredOutboundCounter;
     private readonly InboundMessageDispatcher _dispatcher;
     private readonly UdpMessageEndpoint _endpoint;
     private readonly UdpMessageTransport _commissionableTransport;
@@ -63,9 +64,13 @@ internal sealed class UdpCommissioningSessionContext : ICommissioningSessionCont
 
         _sessions = new SessionManager(_timeProvider);
         _exchanges = new ExchangeManager(_timeProvider);
+        // The node-global unsecured outbound counter (spec §4.6.2) is shared by the dispatcher and
+        // every UnsecuredMessageSession this attempt builds so our source counters increase
+        // monotonically across datagrams; otherwise our replies fall inside the peer's replay window.
+        _unsecuredOutboundCounter = MessageCounter.CreateRandom();
         // The diagnostic callback surfaces silent-drop reasons (unknown session, bad MIC, replay,
         // etc.) to help troubleshoot commissioning failures; it never affects on-the-wire behavior.
-        _dispatcher = new InboundMessageDispatcher(_sessions, _exchanges, onMessageDropped: reason =>
+        _dispatcher = new InboundMessageDispatcher(_sessions, _exchanges, _unsecuredOutboundCounter, onMessageDropped: reason =>
             Console.Error.WriteLine($"[UdpCommissioningSessionContext] dropped inbound datagram: {reason}"));
         _endpoint = new UdpMessageEndpoint(_dispatcher);
         _endpoint.Start();
@@ -73,7 +78,7 @@ internal sealed class UdpCommissioningSessionContext : ICommissioningSessionCont
         _commissionableTransport = _endpoint.CreateTransport(_commissionablePeer);
 
         // The unsecured session carries the PASE handshake; PASE has no fabric/node identity yet.
-        UnsecuredSession = new UnsecuredMessageSession(_commissionableTransport);
+        UnsecuredSession = new UnsecuredMessageSession(_commissionableTransport, counter: _unsecuredOutboundCounter);
 
         // The secure-channel client draws its PASE local session id from this attempt's session
         // manager, so the id it advertises is held for the session installed on success.
@@ -132,7 +137,7 @@ internal sealed class UdpCommissioningSessionContext : ICommissioningSessionCont
         var transport = _endpoint.CreateTransport(peer);
 
         var identity = _identity.ResolvedFabric;
-        var unsecured = new UnsecuredMessageSession(transport, node.SessionParameters, identity.NodeId);
+        var unsecured = new UnsecuredMessageSession(transport, node.SessionParameters, identity.NodeId, counter: _unsecuredOutboundCounter);
 
         var localSessionId = _sessions.AllocateSessionId();
         var caseClient = new CaseClient(_caseCrypto, identity, localSessionId);
