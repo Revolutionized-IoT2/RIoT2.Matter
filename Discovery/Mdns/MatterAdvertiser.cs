@@ -166,7 +166,6 @@ public sealed class MatterAdvertiser : IAsyncDisposable
         AdvertisedRecordSet next = AdvertisedRecordSet.FromInputs(_inputProvider.GetCurrent());
         _store.Update(next);
 
-        // TODO(diagnostic): temporary. Trace which DNS-SD instances are advertised on each publish so we
         // can confirm the operational (_matter._udp) service goes out after a fabric is added.
         MatterTrace.Write(() =>
         {

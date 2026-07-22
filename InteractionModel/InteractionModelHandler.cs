@@ -1,8 +1,9 @@
-﻿using System.Collections.Concurrent;
-using RIoT2.Matter.DataModel;
+﻿using RIoT2.Matter.DataModel;
 using RIoT2.Matter.Device;
 using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Messaging;
+using System.Collections.Concurrent;
+using System.Reflection.Emit;
 
 namespace RIoT2.Matter.InteractionModel;
 
@@ -64,7 +65,6 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
 
         var opcode = (InteractionModelOpcode)message.Protocol.ProtocolOpcode;
 
-        // TODO(diagnostic): temporary - remove once the looping post-CASE interaction is identified.
         MatterTrace.Write(() =>
             $"[im] opcode={opcode} exchangeId={exchange.ExchangeId} initiator={message.Protocol.IsInitiator} " +
             $"payload={message.ApplicationPayload.Length}B session={exchange.Session.Security.FabricIndex}");
@@ -177,12 +177,11 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
             return;
         }
 
-        // TODO(diagnostic): temporary - remove once the post-CASE read that the commissioner rejects is identified.
         if (request.AttributeRequests is { } reqPaths)
         {
             foreach (var p in reqPaths)
             {
-                Console.WriteLine(
+                MatterTrace.Write(() =>
                     $"[im-read] path E={p.Endpoint?.ToString() ?? "*"} C={p.Cluster?.ToString() ?? "*"} " +
                     $"A={p.Attribute?.ToString() ?? "*"} concrete={p.IsConcrete} fabricFiltered={request.FabricFiltered}");
             }
@@ -191,8 +190,7 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
         var context = BuildContext(exchange, request.FabricFiltered);
         var report = await _readEngine.ExecuteAsync(request, context, cancellationToken).ConfigureAwait(false);
 
-        // TODO(diagnostic): temporary.
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[im-read] report: attributeReports={report.AttributeReports?.Count ?? 0} " +
             $"eventReports={report.EventReports?.Count ?? 0}");
 
@@ -241,7 +239,7 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
             return;
         }
 
-        // TODO(diagnostic): temporary. Trace invoke command paths to confirm CommissioningComplete arrival.
+        // Trace invoke command paths to confirm CommissioningComplete arrival.
         if (request.InvokeRequests is { } cmds)
         {
             var sec = exchange.Session.Security;
@@ -277,8 +275,7 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
         // Open the timed window on this exchange; the following Write/Invoke must arrive within it.
         _timedRequests.Open(exchange, request.TimeoutMilliseconds);
 
-        // TODO(diagnostic): temporary.
-        Console.WriteLine(
+        MatterTrace.Write(() =>
             $"[im-timedopen] exchangeId={exchange.ExchangeId} instance={exchange.GetHashCode()} timeoutMs={request.TimeoutMilliseconds}");
 
         // Acknowledge readiness so the client proceeds with the timed action.
@@ -294,7 +291,6 @@ public sealed class InteractionModelHandler : IExchangeMessageHandler
             return;
         }
 
-        // TODO(diagnostic): temporary.
         MatterTrace.Write(() =>
             $"[im-subscribe] keepSubscriptions={request.KeepSubscriptions} fabricFiltered={request.FabricFiltered} " +
             $"min={request.MinIntervalFloor}s max={request.MaxIntervalCeiling}s " +

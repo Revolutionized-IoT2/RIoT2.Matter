@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using RIoT2.Matter.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace RIoT2.Matter.Messaging;
 
@@ -60,8 +61,7 @@ public sealed class ExchangeManager : IDisposable
             if (localRole != ExchangeRole.Responder ||
                 !_unsolicitedHandlers.TryGetValue(message.Protocol.ProtocolId, out var handler))
             {
-                // TODO(diagnostic): temporary - remove once the looping operational request is classified.
-                Console.WriteLine(
+                MatterTrace.Write(() =>
                     $"[exchange] DROPPED unmatched message: session={session.SessionId} " +
                     $"exchangeId={message.Protocol.ExchangeId} localRole={localRole} " +
                     $"protocol=0x{message.Protocol.ProtocolId:X4} opcode={message.Protocol.ProtocolOpcode} " +

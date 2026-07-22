@@ -76,7 +76,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         byte[] tbs = BuildTbs(noc, icac, _responderEphPub, _initiatorEphPub);   // signed by this node's NOC key
         byte[] signature = _fabric.OperationalKey.Sign(tbs);
 
-        // TODO(diagnostic): temporary - remove once CASE Sigma2 interop is confirmed. Verifies the
+        // Verifies the
         // freshly produced signature against the NOC public key the peer will use, and confirms the
         // S2K AEAD round-trips. A failure here (rather than at the peer) localises the defect.
         if (MatterTrace.Enabled && MatterCertificateDecoder.TryDecode(noc, out var selfNoc) && selfNoc is not null)
@@ -90,7 +90,7 @@ internal sealed class ManagedCaseResponderContext : ICaseResponderContext
         byte[] tbe = BuildTbe(noc, icac, signature, _resumptionId);
         byte[] encrypted = CcmEncrypt(s2k, Sigma2Nonce, tbe);
 
-        // TODO(diagnostic): temporary - confirm the S2K schedule round-trips (encrypt then decrypt).
+        // Verifies the S2K schedule round-trips (encrypt then decrypt). A failure here (rather than at the peer) localises the defect.
         if (MatterTrace.Enabled)
         {
             bool aeadOk = TryCcmDecrypt(s2k, Sigma2Nonce, encrypted, out _);

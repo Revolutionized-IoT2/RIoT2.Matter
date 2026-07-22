@@ -154,7 +154,6 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             _entries.Add(entry);
         }
 
-        // TODO(diagnostic): temporary.
         MatterTrace.Write(() =>
             $"[acl-add] fabricIndex={entry.FabricIndex} authMode={entry.AuthMode} privilege={entry.Privilege} " +
             $"subjects=[{string.Join(",", (entry.Subjects ?? System.Array.Empty<ulong>()).Select(s => "0x" + s.ToString("X16")))}]");
@@ -1134,7 +1133,6 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             cluster,
             MapPrivilege(required));
 
-        // TODO(diagnostic): temporary.
         MatterTrace.Write(() =>
             $"[acl-check] fabricIndex={context.AccessingFabricIndex} peerNodeId=0x{context.PeerNodeId.Value:X16} " +
             $"cluster=0x{cluster.Value:X4} required={required} => granted={granted}");
