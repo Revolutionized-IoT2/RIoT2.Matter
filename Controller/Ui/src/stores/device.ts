@@ -233,20 +233,30 @@ export const useDeviceStore = defineStore('device', () => {
     unsubscribe = client.subscribe(applyEvent)
   }
 
+  function sameNode (a: NodeId | null, b: NodeId | null): boolean {
+    if (a == null || b == null) {
+      return false
+    }
+    if (a === b) {
+      return true
+    }
+    // Node ids may arrive in different string forms (decimal vs 0x-prefixed hex,
+    // padding, casing) across REST detail vs the SSE stream. Compare by numeric value.
+    try {
+      return BigInt(a) === BigInt(b)
+    } catch {
+      return false
+    }
+  }
+
   function applyEvent (event: BackendEvent): void {
-    if (event.nodeId !== currentNodeId) {
+    if (!sameNode(event.nodeId, currentNodeId)) {
       return
     }
     if (event.type === 'reachability-changed' && detail.value) {
       const wasOnline = detail.value.reachability === 'online'
       detail.value = { ...detail.value, reachability: event.payload.reachability }
 
-      // A node that just became reachable may have had its detail captured while it was
-      // still offline/reconnecting (the backend returns an empty endpoint list rather than
-      // failing the request outright). Re-fetch full detail now that a connection is
-      // actually possible, so endpoints/clusters populate without requiring the operator to
-      // manually reopen the device. Also re-arms the live attribute subscription, in case the
-      // backend's pump for it had ended while the node was unreachable.
       if (!wasOnline && event.payload.reachability === 'online' && detail.value.endpoints.length === 0) {
         void load(currentNodeId)
       }
