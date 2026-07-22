@@ -1,6 +1,7 @@
 ﻿using RIoT2.Matter.Clusters;
 using RIoT2.Matter.DataModel;
 using RIoT2.Matter.Device;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Discovery.Mdns;
 using RIoT2.Matter.Hosting;
 using RIoT2.Matter.Onboarding;
@@ -22,9 +23,13 @@ internal static class Program
     // can attribute the change to the console rather than a Matter controller.
     private static bool _consoleDrivenChange;
 
-    private static async Task<int> Main()
+    private static async Task<int> Main(string[] args)
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+        // 0. Decide up-front whether verbose troubleshooting traces are emitted. Done before the host
+        //    starts so the first WindowOpened / dropped-datagram traces honor the choice.
+        Diagnostics.Configure(args);
 
         // 1. Provision the onboarding secret ONCE. The passcode the user scans and the on-device
         //    SPAKE2+ verifier come from the same bundle, so they can never diverge.
@@ -103,12 +108,19 @@ internal static class Program
         //    The host owns an in-process CASE resumption store, so an already-commissioned controller can
         //    resume a prior session via Sigma2_Resume (spec §4.14.2.6) without any wiring here.
         //    A stable, serial-derived host id keeps the <id>.local host name constant across restarts.
+        //    Diagnostics are routed into the library only when enabled, so the host's verbose traces
+        //    honor the same --diagnostics / ONOFF_DIAGNOSTICS choice as the sample's own output.
+        IMatterDiagnostics? hostDiagnostics = Diagnostics.Enabled
+            ? new DelegateMatterDiagnostics(Diagnostics.Trace, Diagnostics.TraceError)
+            : null;
+
         await using var host = new MatterNodeHost(
             device.Node,
             device.Commissioning,
             provisioning,
             commissionable,
-            hostId: StableInstanceId($"host:{options.Information.SerialNumber}"));
+            hostId: StableInstanceId($"host:{options.Information.SerialNumber}"),
+            diagnostics: hostDiagnostics);
         using var lifetime = new CancellationTokenSource();
 
         // Subscribe BEFORE starting the host: a factory-new node opens its basic commissioning window
@@ -118,7 +130,7 @@ internal static class Program
         await host.StartAsync(lifetime.Token);
 
         // Report the window state that resulted from startup (a factory-new node should be BasicWindowOpen).
-        Console.WriteLine($"[commissioning] startup window status: {device.Commissioning.AdministratorCommissioning.Status}");
+        Diagnostics.Trace($"[commissioning] startup window status: {device.Commissioning.AdministratorCommissioning.Status}");
 
         // Subscribes to the commissioning-support lifecycle so each stage of a pairing attempt is logged.
         // Reading these in order during a Google Home attempt isolates the failure point:
@@ -325,21 +337,21 @@ internal static class Program
     private static void TraceCommissioningStages(RIoT2.Matter.Clusters.CommissioningSupport commissioning)
     {
         commissioning.AdministratorCommissioning.WindowOpened += (_, e) =>
-            Console.WriteLine($"[commissioning] window OPENED ({e.Status}); node is now commissionable (PASE accepted).");
+            Diagnostics.Trace($"[commissioning] window OPENED ({e.Status}); node is now commissionable (PASE accepted).");
 
         commissioning.AdministratorCommissioning.WindowClosed += (_, _) =>
-            Console.WriteLine("[commissioning] window CLOSED (revoked or timed out); node no longer commissionable.");
+            Diagnostics.Trace("[commissioning] window CLOSED (revoked or timed out); node no longer commissionable.");
 
         commissioning.Manager.FabricAdded += (_, e) =>
-            Console.WriteLine($"[commissioning] AddNOC succeeded: fabric added (index {e.FabricIndex}). PASE + attestation passed.");
+            Diagnostics.Trace($"[commissioning] AddNOC succeeded: fabric added (index {e.FabricIndex}). PASE + attestation passed.");
 
         commissioning.Manager.FabricRemoved += (_, e) =>
-            Console.WriteLine($"[commissioning] fabric REMOVED (index {e.FabricIndex}); AddNOC was rolled back.");
+            Diagnostics.Trace($"[commissioning] fabric REMOVED (index {e.FabricIndex}); AddNOC was rolled back.");
 
         commissioning.StateMachine.CommissioningCompleted += (_, _) =>
-            Console.WriteLine("[commissioning] CommissioningComplete received: pairing SUCCEEDED.");
+            Diagnostics.Trace("[commissioning] CommissioningComplete received: pairing SUCCEEDED.");
 
         commissioning.StateMachine.FailSafeExpired += (_, _) =>
-            Console.WriteLine("[commissioning] fail-safe EXPIRED: the controller aborted before CommissioningComplete (post-AddNOC failure).");
+            Diagnostics.Trace("[commissioning] fail-safe EXPIRED: the controller aborted before CommissioningComplete (post-AddNOC failure).");
     }
 }

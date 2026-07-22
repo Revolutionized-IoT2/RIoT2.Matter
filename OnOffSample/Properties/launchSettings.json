@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "RIoT2.Matter.OnOffSample": {
+      "commandName": "Project",
+      "commandLineArgs": "--no-diagnostics"
+    }
+  }
+}

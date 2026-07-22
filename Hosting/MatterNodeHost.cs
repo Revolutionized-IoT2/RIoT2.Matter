@@ -2,6 +2,7 @@
 using RIoT2.Matter.Clusters;
 using RIoT2.Matter.DataModel;
 using RIoT2.Matter.Device;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Discovery.Dns;
 using RIoT2.Matter.Discovery.Mdns;
 using RIoT2.Matter.InteractionModel;
@@ -32,6 +33,11 @@ public sealed class MatterNodeHost : IAsyncDisposable
     private readonly PaseProvisioning _provisioning;
     private readonly CommissionableServiceInfo _commissionable;
     private readonly ushort _commissioningWindowSeconds;
+    private readonly RIoT2.Matter.Diagnostics.IMatterDiagnostics _diagnostics;
+
+    // Whether this host installed the process-wide MatterTrace sink; only then does DisposeAsync
+    // tear it down, so a host that was handed diagnostics doesn't clobber a sink it didn't own.
+    private readonly bool _ownsTraceSink;
 
     private readonly UdpMatterTransport _transport = new();
     private readonly SessionManager _sessions = new();
@@ -81,13 +87,19 @@ public sealed class MatterNodeHost : IAsyncDisposable
     /// device-bound value (e.g. derived from the serial number) so the host name is constant across
     /// restarts; when null a random id is generated for the process lifetime.
     /// </param>
+    /// <param name="diagnostics">
+    /// The sink for verbose troubleshooting output (dropped datagrams, handshake/commissioning-window
+    /// transitions). Supplying a sink turns diagnostics ON; when null the host stays silent
+    /// (<see cref="NullMatterDiagnostics"/>).
+    /// </param>
     public MatterNodeHost(
         MatterNode node,
         CommissioningSupport commissioning,
         PaseProvisioning provisioning,
         CommissionableServiceInfo commissionable,
         ushort commissioningWindowSeconds = 900,
-        ulong? hostId = null)
+        ulong? hostId = null,
+        RIoT2.Matter.Diagnostics.IMatterDiagnostics? diagnostics = null)
     {
         _node = node ?? throw new ArgumentNullException(nameof(node));
         _commissioning = commissioning ?? throw new ArgumentNullException(nameof(commissioning));
@@ -95,13 +107,19 @@ public sealed class MatterNodeHost : IAsyncDisposable
         _commissionable = commissionable ?? throw new ArgumentNullException(nameof(commissionable));
         _commissioningWindowSeconds = commissioningWindowSeconds;
         _hostId = hostId ?? (ulong)Random.Shared.NextInt64();
+        _diagnostics = diagnostics ?? RIoT2.Matter.Diagnostics.NullMatterDiagnostics.Instance;
+        if (diagnostics is not null)
+        {
+            RIoT2.Matter.Diagnostics.MatterTrace.Enable(diagnostics);
+            _ownsTraceSink = true;
+        }
 
         // The inbound counterpart to the secure send path: resolves/decrypts each datagram to a
         // session and routes the decoded message into the exchange layer. The diagnostic callback
         // surfaces silent-drop reasons (unknown session, bad MIC, replay, etc.) to help troubleshoot
         // handshake/session issues; it never affects on-the-wire behavior.
         _inbound = new InboundMessageDispatcher(_sessions, _exchanges, _unsecuredOutboundCounter, onMessageDropped: reason =>
-            Console.Error.WriteLine($"[MatterNodeHost] dropped inbound datagram: {reason}"));
+            MatterTrace.WriteError(() => $"[MatterNodeHost] dropped inbound datagram: {reason}"));
 
         // The controller/initiator counterpart to the Interaction Model handler: originates outbound
         // Invoke transactions over sessions established by ConnectAsync.
@@ -226,7 +244,7 @@ public sealed class MatterNodeHost : IAsyncDisposable
         // peer. Malformed, replayed, unauthenticated, or unknown-session datagrams are dropped inside the
         // dispatcher.
         var reply = new EndpointMessageTransport(_transport, datagram.RemoteEndPoint);
-        Console.WriteLine($"[host] inbound datagram from {datagram.RemoteEndPoint} ({datagram.Payload.Length} bytes); reply bound to same endpoint.");
+        MatterTrace.Write(() => $"[host] inbound datagram from {datagram.RemoteEndPoint} ({datagram.Payload.Length} bytes); reply bound to same endpoint.");
         try
         {
             await _inbound.DispatchAsync(datagram.Payload, reply, _lifetime.Token).ConfigureAwait(false);
@@ -240,7 +258,7 @@ public sealed class MatterNodeHost : IAsyncDisposable
             // A datagram handler faulted (e.g. an encode or transport error while sending a reply).
             // The receive loop launches this task fire-and-forget, so surface the fault here rather
             // than letting it become an unobserved exception that stalls the handshake silently.
-            Console.Error.WriteLine($"[MatterNodeHost] datagram dispatch faulted: {ex}");
+            MatterTrace.WriteError(() => $"[MatterNodeHost] datagram dispatch faulted: {ex}");
         }
     }
 
@@ -252,15 +270,15 @@ public sealed class MatterNodeHost : IAsyncDisposable
         var addresses = new List<IPAddress>(HostAddresses.GetIpv6());
         addresses.AddRange(HostAddresses.GetIpv4());
 
-        Console.WriteLine($"[host] advertising HostName={_hostId:X16}.local Port={UdpMatterTransport.DefaultPort}");
+        MatterTrace.Write(() => $"[host] advertising HostName={_hostId:X16}.local Port={UdpMatterTransport.DefaultPort}");
         foreach (IPAddress addr in addresses)
         {
-            Console.WriteLine($"[host]   advertised address: {addr} (linkLocal={addr.IsIPv6LinkLocal})");
+            MatterTrace.Write(() => $"[host]   advertised address: {addr} (linkLocal={addr.IsIPv6LinkLocal})");
         }
 
         if (addresses.Count == 0)
         {
-            Console.Error.WriteLine("[host] WARNING: no advertised addresses — SRV will resolve to a hostname with no A/AAAA records; commissioners cannot reach the operational endpoint.");
+            MatterTrace.WriteError(() => "[host] WARNING: no advertised addresses — SRV will resolve to a hostname with no A/AAAA records; commissioners cannot reach the operational endpoint.");
         }
 
         var host = new MatterHostInfo
@@ -308,6 +326,13 @@ public sealed class MatterNodeHost : IAsyncDisposable
         // Detach from the transport before disposing it so no further datagrams are dispatched.
         _transport.DatagramReceived -= OnDatagramReceived;
         await _transport.DisposeAsync().ConfigureAwait(false);
+
+        // Turn off the process-wide trace gate we installed so a later host (or the tests) starts
+        // from a clean, silent state rather than inheriting this host's sink.
+        if (_ownsTraceSink)
+        {
+            RIoT2.Matter.Diagnostics.MatterTrace.Disable();
+        }
 
         _lifetime.Dispose();
     }

@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Hosting;
 using RIoT2.Matter.Messaging;
 using RIoT2.Matter.Tlv;
@@ -299,14 +300,20 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
             var candidate = _crypto.ComputeDestinationIdentifier(
                 fabric.IdentityProtectionKey, initiatorRandom, fabric.RootPublicKey, fabric.FabricId, fabric.NodeId);
 
-            // TODO(diagnostic): temporary - remove once CASE DestinationId resolution is confirmed.
-            Console.Error.WriteLine(
-                $"[case] resolve fabric idx={fabric.FabricIndex.Value} nodeId=0x{fabric.NodeId.Value:X16} " +
-                $"fabricId=0x{fabric.FabricId.Value:X16} rootPubLen={fabric.RootPublicKey.Length} ipkLen={fabric.IdentityProtectionKey.Length} " +
-                $"candidate={Convert.ToHexString(candidate)} wanted={Convert.ToHexString(destinationId)} " +
-                $"match={CryptographicOperations.FixedTimeEquals(candidate, destinationId)}");
+            bool match = CryptographicOperations.FixedTimeEquals(candidate, destinationId);
 
-            if (CryptographicOperations.FixedTimeEquals(candidate, destinationId))
+            // TODO(diagnostic): temporary - remove once CASE DestinationId resolution is confirmed.
+            if (MatterTrace.Enabled)
+            {
+                // Copy the ref-like span into a heap array so it can be captured by the trace lambda.
+                string wantedHex = Convert.ToHexString(destinationId);
+                MatterTrace.WriteError(() =>
+                    $"[case] resolve fabric idx={fabric.FabricIndex.Value} nodeId=0x{fabric.NodeId.Value:X16} " +
+                    $"fabricId=0x{fabric.FabricId.Value:X16} rootPubLen={fabric.RootPublicKey.Length} ipkLen={fabric.IdentityProtectionKey.Length} " +
+                    $"candidate={Convert.ToHexString(candidate)} wanted={wantedHex} match={match}");
+            }
+
+            if (match)
             {
                 resolved = fabric;
                 return true;
