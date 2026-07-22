@@ -23,7 +23,7 @@
                           hide-details
                           @end="onLevel" />
             </div>
-
+            <!--
             <v-btn v-if="hasIdentify"
                    class="mt-2"
                    variant="text"
@@ -31,7 +31,7 @@
                    :loading="busy"
                    @click="onIdentify">
                 Identify
-            </v-btn>
+            </v-btn>-->
         </v-card-text>
     </v-card>
 </template>
