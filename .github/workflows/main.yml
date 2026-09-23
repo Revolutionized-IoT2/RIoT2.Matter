@@ -1,0 +1,33 @@
+name: Build and Deploy
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+    
+jobs:
+  build:
+   name: Build Package
+   runs-on: ubuntu-latest
+   steps:
+     - name: Checkout Repository
+       uses: actions/checkout@v4
+     
+     - name: Set up -NET Core
+       uses: actions/setup-dotnet@v4
+       with:
+        dotnet-version: 9.0.x
+     
+     - name: Build
+       run: dotnet build --configuration Release
+     
+     - name: Package
+       run: >
+        dotnet pack --no-restore --no-build --configuration Release
+        -p:PackageVersion=${{ github.ref_name }} --output .
+     
+     - name: Publish
+       run: >
+        dotnet nuget push RIoT2.Matter.${{ github.ref_name }}.nupkg
+        -s https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
+        -k ${{ secrets.NUGET_PACKAGE_TOKEN }}
