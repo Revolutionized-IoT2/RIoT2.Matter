@@ -4,47 +4,118 @@ on:
   push:
     tags:
       - '*.*.*'
-    
+
 jobs:
-  build:
-   name: Build Package
-   runs-on: ubuntu-latest
-   steps:
-     - name: Checkout Repository
-       uses: actions/checkout@v4
-     
-     - name: Set up -NET Core
-       uses: actions/setup-dotnet@v4
-       with:
-        dotnet-version: 9.0.x
-     
-     - name: Build Matter
-       run: dotnet build --configuration Release
-     
-     - name: Package Matter
-       run: >
-        dotnet pack --no-restore --no-build --configuration Release
-        -p:PackageVersion=${{ github.ref_name }} --output .
-     
-     - name: Publish Matter
-       run: >
-        dotnet nuget push RIoT2.Matter.${{ github.ref_name }}.nupkg
-        -s https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
-        -k ${{ secrets.NUGET_PACKAGE_TOKEN }}
+  publish-matter:
+    name: publish-matter
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-     - name: Build ControlBridge
-       run: dotnet build --configuration Release
-       working-directory: ControlBridge
+      - name: Set up .NET Core
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
 
-     - name: Package ControlBridge
-       working-directory: ControlBridge
-       run: >
-        dotnet pack --no-restore --no-build --configuration Release
-        -p:PackageVersion=${{ github.ref_name }} --output .
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget add source
+          https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
+          --name github
+          --username Revolutionized-IoT2
+          --password ${{ secrets.NUGET_PACKAGE_TOKEN }}
+          --store-password-in-clear-text
 
-     - name: Publish ControlBridge
-       working-directory: ControlBridge
-       run: >
-        dotnet nuget push RIoT2.Matter.ControlBridge.${{ github.ref_name }}.nupkg
-        -s https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
-        -k ${{ secrets.NUGET_PACKAGE_TOKEN }}
+      - name: Restore Matter
+        run: dotnet restore RIoT2.Matter.csproj
+
+      - name: Build Matter
+        run: >
+          dotnet build RIoT2.Matter.csproj
+          --configuration Release
+          --no-restore
+          -p:Version=${{ github.ref_name }}
+          -p:PackageVersion=${{ github.ref_name }}
+          -p:AssemblyVersion=${{ github.ref_name }}
+
+      - name: Package Matter
+        run: >
+          dotnet pack RIoT2.Matter.csproj
+          --configuration Release
+          --no-restore
+          --no-build
+          -p:Version=${{ github.ref_name }}
+          -p:PackageVersion=${{ github.ref_name }}
+          -p:AssemblyVersion=${{ github.ref_name }}
+          --output .
+
+      - name: Publish Matter
+        run: >
+          dotnet nuget push RIoT2.Matter.${{ github.ref_name }}.nupkg
+          --source https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
+          --api-key ${{ secrets.NUGET_PACKAGE_TOKEN }}
+
+  publish-controlbridge:
+    name: publish-controlbridge
+    runs-on: ubuntu-latest
+    needs: publish-matter
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET Core
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Authenticate to GitHub Packages
+        run: >
+          dotnet nuget add source
+          https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
+          --name github
+          --username Revolutionized-IoT2
+          --password ${{ secrets.NUGET_PACKAGE_TOKEN }}
+          --store-password-in-clear-text
+
+      - name: Restore ControlBridge
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if dotnet restore ControlBridge/RIoT2.Matter.ControlBridge.csproj --force --no-cache -p:RIoT2MatterPackageVersion=${{ github.ref_name }}; then
+              exit 0
+            fi
+
+            echo "ControlBridge restore failed on attempt ${attempt}; waiting for package visibility before retrying..."
+            sleep 10
+          done
+
+          exit 1
+
+      - name: Build ControlBridge
+        run: >
+          dotnet build ControlBridge/RIoT2.Matter.ControlBridge.csproj
+          --configuration Release
+          --no-restore
+          -p:RIoT2MatterPackageVersion=${{ github.ref_name }}
+          -p:Version=${{ github.ref_name }}
+          -p:PackageVersion=${{ github.ref_name }}
+          -p:AssemblyVersion=${{ github.ref_name }}
+
+      - name: Package ControlBridge
+        run: >
+          dotnet pack ControlBridge/RIoT2.Matter.ControlBridge.csproj
+          --configuration Release
+          --no-restore
+          --no-build
+          -p:RIoT2MatterPackageVersion=${{ github.ref_name }}
+          -p:Version=${{ github.ref_name }}
+          -p:PackageVersion=${{ github.ref_name }}
+          -p:AssemblyVersion=${{ github.ref_name }}
+          --output .
+
+      - name: Publish ControlBridge
+        run: >
+          dotnet nuget push RIoT2.Matter.ControlBridge.${{ github.ref_name }}.nupkg
+          --source https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
+          --api-key ${{ secrets.NUGET_PACKAGE_TOKEN }}
