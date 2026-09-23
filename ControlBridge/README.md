@@ -253,6 +253,18 @@ The endpoint must implement the required clusters; the library does not introspe
 implementation. Each bridged device appears as a separate device in the fabric, with its own
 onboarding and commissioning:
 
+> **Stable endpoint ids.** By default bridged endpoints are allocated sequentially above the
+> aggregator's own id, so a host that adds devices in a different order after a restart would hand a
+> commissioner different ids for the same devices. If you persist your own device-to-endpoint map,
+> pass `preferredEndpointId` to pin each device:
+>
+> ```csharp
+> await service.AddBridgedDeviceAsync(definition, adapter, preferredEndpointId: new EndpointId(7));
+> ```
+>
+> The id is honoured when it is free and above the aggregator's id; otherwise the next sequential id
+> is used, so a stale or colliding map degrades gracefully rather than throwing.
+
 ```csharp
 using RIoT2.Matter.Clusters;      // OnOffCluster, LevelControlCluster, ColorControlCluster
 using RIoT2.Matter.ControlBridge; // ControlBridgeService

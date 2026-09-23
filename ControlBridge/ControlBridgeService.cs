@@ -10,7 +10,7 @@ using Bridge = RIoT2.Matter.Clusters.ControlBridge;
 namespace RIoT2.Matter.ControlBridge;
 
 /// <summary>
-/// The controller-facing façade over a Matter Control Bridge (device type 0x0840): it composes the
+/// The controller-facing faï¿½ade over a Matter Control Bridge (device type 0x0840): it composes the
 /// bridge device, hosts it (transport, Secure Channel, Interaction Model, DNS-SD), exposes the
 /// onboarding QR/manual codes a Matter commissioner scans, and drives the bridge's bound targets by
 /// opening operational (CASE) sessions and routing commands to them. This is the single type an actual
@@ -73,7 +73,7 @@ public sealed class ControlBridgeService : IAsyncDisposable
     /// <summary>
     /// The Aggregator endpoint exposing bridged non-Matter devices, or <see langword="null"/> when
     /// <see cref="ControlBridgeSettings.AggregatorEndpoint"/> was not configured. Prefer the
-    /// <see cref="AddBridgedDeviceAsync"/> / <see cref="RemoveBridgedDeviceAsync"/> façade methods.
+    /// <see cref="AddBridgedDeviceAsync"/> / <see cref="RemoveBridgedDeviceAsync"/> faï¿½ade methods.
     /// </summary>
     public AggregatorEndpoint? Aggregator => _aggregator;
 
@@ -209,14 +209,23 @@ public sealed class ControlBridgeService : IAsyncDisposable
     /// endpoint and attaches <paramref name="adapter"/>. Requires
     /// <see cref="ControlBridgeSettings.AggregatorEndpoint"/> to have been configured.
     /// </summary>
+    /// <param name="definition">The bridged device's identity, device type, and application clusters.</param>
+    /// <param name="adapter">The adapter mirroring state between the clusters and the real device.</param>
+    /// <param name="preferredEndpointId">
+    /// An endpoint id to pin the device to, so a host with a persisted device-to-endpoint map keeps a
+    /// commissioner's references stable across restarts. Honoured when free; otherwise the next
+    /// sequential id is used. Pass <see langword="null"/> for plain sequential allocation.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the adapter attach.</param>
     /// <exception cref="InvalidOperationException">No aggregator was configured for this service.</exception>
     public ValueTask<BridgedDevice> AddBridgedDeviceAsync(
-        BridgedDeviceDefinition definition, IBridgedDeviceAdapter adapter, CancellationToken cancellationToken = default)
+        BridgedDeviceDefinition definition, IBridgedDeviceAdapter adapter,
+        EndpointId? preferredEndpointId = null, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var aggregator = _aggregator
             ?? throw new InvalidOperationException("No aggregator is configured; set ControlBridgeSettings.AggregatorEndpoint to bridge devices.");
-        return aggregator.AddBridgedDeviceAsync(definition, adapter, cancellationToken);
+        return aggregator.AddBridgedDeviceAsync(definition, adapter, preferredEndpointId, cancellationToken);
     }
 
     /// <summary>Removes a previously bridged device and tears down its endpoint. Returns <see langword="false"/> when unknown or no aggregator is configured.</summary>
