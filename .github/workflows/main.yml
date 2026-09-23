@@ -18,16 +18,33 @@ jobs:
        with:
         dotnet-version: 9.0.x
      
-     - name: Build
+     - name: Build Matter
        run: dotnet build --configuration Release
      
-     - name: Package
+     - name: Package Matter
        run: >
         dotnet pack --no-restore --no-build --configuration Release
         -p:PackageVersion=${{ github.ref_name }} --output .
      
-     - name: Publish
+     - name: Publish Matter
        run: >
         dotnet nuget push RIoT2.Matter.${{ github.ref_name }}.nupkg
+        -s https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
+        -k ${{ secrets.NUGET_PACKAGE_TOKEN }}
+
+     - name: Build ControlBridge
+       run: dotnet build --configuration Release
+       working-directory: ControlBridge
+
+     - name: Package ControlBridge
+       working-directory: ControlBridge
+       run: >
+        dotnet pack --no-restore --no-build --configuration Release
+        -p:PackageVersion=${{ github.ref_name }} --output .
+
+     - name: Publish ControlBridge
+       working-directory: ControlBridge
+       run: >
+        dotnet nuget push RIoT2.Matter.ControlBridge.${{ github.ref_name }}.nupkg
         -s https://nuget.pkg.github.com/Revolutionized-IoT2/index.json
         -k ${{ secrets.NUGET_PACKAGE_TOKEN }}
