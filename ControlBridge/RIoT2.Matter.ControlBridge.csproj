@@ -9,7 +9,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\RIoT2.Matter.csproj" />
+      <PackageReference Include="RIoT2.Matter" Version="0.1.11" />
     </ItemGroup>
 
 </Project>
