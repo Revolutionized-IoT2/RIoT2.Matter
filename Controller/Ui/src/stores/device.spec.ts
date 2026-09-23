@@ -101,6 +101,24 @@ describe('useDeviceStore', () => {
     expect(store.endpointStates[1]?.onOff).toBe(true)
   })
 
+  it('ignores commissioning events without a node id', async () => {
+    const client = new InMemoryBackendClient({ details: { n1: makeDetail() } })
+    await client.connect()
+    const store = useDeviceStore()
+    store.setClient(client)
+    await store.load('n1')
+
+    const detail = store.detail
+    client.emit({
+      type: 'commissioning-progress',
+      payload: { stage: 'pase' },
+      timestamp: new Date().toISOString(),
+    })
+
+    expect(store.detail).toBe(detail)
+    expect(store.endpointStates[1]?.onOff).toBe(false)
+  })
+
   it('re-fetches detail when a node with no endpoints comes back online', async () => {
     const offlineDetail: DeviceDetail = { ...makeDetail(), reachability: 'offline', endpoints: [] }
     const onlineDetail = makeDetail()

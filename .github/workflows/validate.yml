@@ -1,0 +1,65 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    name: .NET (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Restore local project graph
+        run: dotnet restore RIoT2.Matter.sln
+      - name: Build libraries, controller, sample, and tests
+        run: dotnet build RIoT2.Matter.sln --configuration Release --no-restore
+      - name: Run offline regression tests
+        run: dotnet test RIoT2.Matter.sln --configuration Release --no-build --no-restore --logger trx --results-directory artifacts/tests
+      - name: Smoke-test core package
+        run: dotnet pack RIoT2.Matter.csproj --configuration Release --no-build --no-restore --output artifacts/packages
+      - name: Smoke-test bridge package with local core dependency
+        run: dotnet pack ControlBridge/RIoT2.Matter.ControlBridge.csproj --configuration Release --no-build --no-restore --output artifacts/packages
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: artifacts/tests/*.trx
+          if-no-files-found: ignore
+
+  ui:
+    name: Controller UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Controller/Ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: Controller/Ui/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Type-check and build production assets
+        run: npm run build
+      - name: Run offline UI tests
+        run: npm test

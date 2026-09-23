@@ -37,7 +37,7 @@ let shared: IBackendClient | null = null
  * Returns the process-wide shared backend client.
  *
  * All stores must use this so the single subscription stream (opened once via
- * `connect()`) feeds every consumer — otherwise stores that only `subscribe()` would
+ * `connect()`) feeds every consumer; otherwise stores that only `subscribe()` would
  * listen on a transport whose stream was never opened.
  */
 export function getBackendClient (): IBackendClient {

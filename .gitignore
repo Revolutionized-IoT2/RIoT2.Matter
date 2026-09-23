@@ -8,7 +8,8 @@
 /ControlBridge/.vs
 /ControlBridge/bin/Debug/net9.0
 /ControlBridge/obj
-/.github
+/.github/*
+!/.github/workflows/
 /ControlBridge/.github
 /Controller/.github
 /Controller/.vs
@@ -27,3 +28,6 @@
 /Tests/bin/
 /Tests/obj/
 /artifacts/
+/OnOffSample/bin/Release/
+/Controller/Ui/dist/
+/Controller/Ui/coverage/
