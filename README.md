@@ -52,20 +52,50 @@ and a growing set of clusters — assembled into ready-to-run device types such 
 
 ## Build & test
 
-```bash
-dotnet build
-
-dotnet test
+```powershell
+dotnet restore RIoT2.Matter.sln
+dotnet build RIoT2.Matter.sln --configuration Release --no-restore
+dotnet test RIoT2.Matter.sln --configuration Release --no-build --no-restore
 ```
 
-The solution includes `Tests\RIoT2.Matter.Tests.csproj`, an offline xUnit suite covering
+The solution builds the local core, ControlBridge, Controller, OnOffSample, and tests.
+It includes `Tests\RIoT2.Matter.Tests.csproj`, an offline xUnit suite covering
 attestation trust, event authorization, timed exchanges, unsecured peer isolation, and
 credential/ACL rollback and persistence, plus bridged endpoint lifecycle and topology subscriptions.
 Tests create only ephemeral in-memory keys and
 short-lived encrypted state beneath their build output; no device or network service is required.
-Source builds of ControlBridge reference the local Matter project, so these tests exercise the
-current implementation without requiring an unpublished package. Release workflows can still
+Source builds of Controller and ControlBridge reference the local Matter project, so these tests
+exercise the current implementation without requiring an unpublished or private package.
+Release workflows can still
 select a packaged dependency explicitly with `-p:RIoT2MatterPackageVersion=<version>`.
+
+The separately built Controller UI requires Node.js **22.13 or later in the 22.x line** and npm.
+From `Controller\Ui`, run:
+
+```powershell
+npm ci --no-audit --no-fund
+npm run build
+npm test
+```
+
+The build includes Vue/TypeScript checking and a production Vite bundle; Vitest tests use
+in-memory backends and jsdom, not a running controller. Dependency installation/restore needs
+registry access (or a populated cache); the builds and tests do not require Matter hardware,
+multicast discovery, commissioned devices, or production attestation credentials.
+
+`.github/workflows/validate.yml` runs on pull requests, branch pushes, and manual dispatch:
+
+- .NET 9 Release solution build and offline xUnit tests on Linux and Windows, with TRX artifacts.
+- Local core/ControlBridge package smoke builds (no publishing or private-feed credentials).
+- Locked UI installation, type-check/production build, and Vitest tests on Linux with Node 22.
+
+The existing `*.*.*` tag release calls the same validation workflow before publishing core,
+then ControlBridge. Its private-feed authentication and explicit
+`RIoT2MatterPackageVersion` override remain confined to publishing jobs; PR validation needs
+no secrets. Configure required checks in repository branch protection separately.
+
+CI does not yet cover ARM64 execution, real-device/inter-controller interoperability, browser
+end-to-end flows, or UI linting (the existing competing ESLint configurations need consolidation).
 
 Add a reference to the library from your host application:
 

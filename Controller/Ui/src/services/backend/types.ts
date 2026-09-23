@@ -5,7 +5,7 @@
  *
  * Phase 1: mirrors the backend's stable service interfaces (ICommissioner, Interaction
  * Model client, discovery, fabric admin) as UI-facing DTOs. These deliberately avoid
- * wire-level Matter types — they express only what the UI needs, in UI-friendly shapes.
+ * wire-level Matter types; they express only what the UI needs, in UI-friendly shapes.
  */
 
 /** Unique identifier for a node within the fabric. */

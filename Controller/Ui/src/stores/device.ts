@@ -250,7 +250,7 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   function applyEvent (event: BackendEvent): void {
-    if (!sameNode(event.nodeId, currentNodeId)) {
+    if (currentNodeId == null || event.nodeId == null || !sameNode(event.nodeId, currentNodeId)) {
       return
     }
     if (event.type === 'reachability-changed' && detail.value) {
