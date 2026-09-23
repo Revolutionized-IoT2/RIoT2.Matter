@@ -34,7 +34,13 @@ public static class MatterControllerServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        var optionsBuilder = services.AddOptions<MatterControllerOptions>().ValidateDataAnnotations();
+        var optionsBuilder = services.AddOptions<MatterControllerOptions>()
+            .ValidateDataAnnotations()
+            .Validate(options => options.TrustedPaaCertificates.Count > 0,
+                "MatterController:TrustedPaaCertificates must contain explicitly trusted DER PAA certificates.")
+            .Validate(options => options.TrustedCertificationDeclarationSigners.Count > 0,
+                "MatterController:TrustedCertificationDeclarationSigners must contain explicitly trusted DER CD signer certificates.")
+            .ValidateOnStart();
         if (configure is not null)
         {
             optionsBuilder.Configure(configure);
@@ -58,7 +64,8 @@ public static class MatterControllerServiceCollectionExtensions
         services.TryAddSingleton<IDeviceAttestationVerifier>(sp =>
         {
             var options = sp.GetRequiredService<IOptions<MatterControllerOptions>>().Value;
-            return new DeviceAttestationVerifier(options.TrustedPaaCertificates.ToArray());
+            return new DeviceAttestationVerifier(options.TrustedPaaCertificates.ToArray(),
+                options.TrustedCertificationDeclarationSigners.ToArray());
         });
 
         // The commissioning orchestrator, composed from the caller-supplied seams plus the registry

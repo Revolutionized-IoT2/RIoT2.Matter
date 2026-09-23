@@ -6,7 +6,8 @@
         <Nullable>enable</Nullable>
         <RootNamespace>RIoT2.Matter.ControlBridge</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <RIoT2MatterPackageVersion Condition="'$(RIoT2MatterPackageVersion)' == ''">0.1.11</RIoT2MatterPackageVersion>
+        <Version>0.1.13</Version>
+        <RIoT2MatterPackageVersion Condition="'$(RIoT2MatterPackageVersion)' == ''">0.1.13</RIoT2MatterPackageVersion>
     </PropertyGroup>
 
     <ItemGroup>

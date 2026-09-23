@@ -70,6 +70,10 @@ public sealed class AttestationCertificateChainVerifier
                 if (!IsTimeValid(dac, now)) { return AttestationChainVerificationResult.Fail("The DAC is expired or not yet valid."); }
                 if (!IsTimeValid(pai, now)) { return AttestationChainVerificationResult.Fail("The PAI is expired or not yet valid."); }
                 if (!IsTimeValid(paa, now)) { return AttestationChainVerificationResult.Fail("The PAA is expired or not yet valid."); }
+                if (!HasRequiredProfile(dac, false) || !HasRequiredProfile(pai, true) || !HasRequiredProfile(paa, true))
+                {
+                    return AttestationChainVerificationResult.Fail("Attestation certificate key or required extensions are invalid.");
+                }
 
                 if (IsCa(dac)) { return AttestationChainVerificationResult.Fail("The DAC must be a leaf certificate (basic constraints CA=false)."); }
                 if (!IsCa(pai)) { return AttestationChainVerificationResult.Fail("The PAI must be a CA certificate (basic constraints CA=true)."); }
@@ -89,6 +93,10 @@ public sealed class AttestationCertificateChainVerifier
 
                 return AttestationChainVerificationResult.Success;
             }
+        }
+        catch (Exception ex) when (ex is CryptographicException or AsnContentException or InvalidOperationException or ArgumentException)
+        {
+            return AttestationChainVerificationResult.Fail("Malformed attestation certificate.");
         }
         finally
         {
@@ -132,6 +140,16 @@ public sealed class AttestationCertificateChainVerifier
 
     private static bool IsTimeValid(X509Certificate2 cert, DateTimeOffset now)
         => now >= cert.NotBefore.ToUniversalTime() && now <= cert.NotAfter.ToUniversalTime();
+
+    private static bool HasRequiredProfile(X509Certificate2 certificate, bool ca)
+    {
+        using var key = certificate.GetECDsaPublicKey();
+        var constraints = certificate.Extensions.OfType<X509BasicConstraintsExtension>().SingleOrDefault();
+        var usage = certificate.Extensions.OfType<X509KeyUsageExtension>().SingleOrDefault();
+        return key is not null && key.ExportParameters(false).Curve.Oid.Value == "1.2.840.10045.3.1.7" &&
+            constraints is not null && constraints.CertificateAuthority == ca && usage is not null &&
+            usage.KeyUsages == (ca ? X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign : X509KeyUsageFlags.DigitalSignature);
+    }
 
     private static bool IsCa(X509Certificate2 cert)
     {
@@ -220,7 +238,7 @@ public sealed class AttestationCertificateChainVerifier
         if (dacVid is null) { return "The DAC subject is missing the required Matter Vendor ID."; }
         if (dacPid is null) { return "The DAC subject is missing the required Matter Product ID."; }
 
-        if (paiVid is not null && paiVid != dacVid) { return "The PAI Vendor ID does not match the DAC Vendor ID."; }
+        if (paiVid is null || paiVid != dacVid) { return "The PAI Vendor ID is absent or does not match the DAC Vendor ID."; }
         if (paiPid is not null && paiPid != dacPid) { return "The PAI Product ID does not match the DAC Product ID."; }
 
         // A PAA may be VID-scoped or the NoVID root; only enforce a match when it declares a VID.
@@ -230,8 +248,9 @@ public sealed class AttestationCertificateChainVerifier
     }
 
     /// <summary>Reads a Matter VID/PID DN attribute (a 4-hex-digit UTF8/printable string) as an integer.</summary>
-    private static int? ReadDnInteger(X500DistinguishedName name, string oid)
+    public static int? ReadDnInteger(X500DistinguishedName name, string oid)
     {
+        int? result = null;
         foreach (var rdn in name.EnumerateRelativeDistinguishedNames())
         {
             if (!string.Equals(rdn.GetSingleElementType().Value, oid, StringComparison.Ordinal))
@@ -240,13 +259,17 @@ public sealed class AttestationCertificateChainVerifier
             }
 
             var value = rdn.GetSingleElementValue();
-            if (value is not null && int.TryParse(value, System.Globalization.NumberStyles.HexNumber,
+            if (result is null && value is { Length: 4 } && int.TryParse(value, System.Globalization.NumberStyles.HexNumber,
                 System.Globalization.CultureInfo.InvariantCulture, out var parsed))
             {
-                return parsed;
+                result = parsed;
+            }
+            else
+            {
+                throw new CryptographicException("Duplicate or malformed Matter VID/PID.");
             }
         }
 
-        return null;
+        return result;
     }
 }

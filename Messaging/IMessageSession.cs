@@ -15,6 +15,9 @@ public interface IMessageSession
     /// <summary>The session identifier carried in the message header.</summary>
     ushort SessionId { get; }
 
+    /// <summary>Exchange routing identity; unsecured sessions must distinguish transport peers.</summary>
+    object ExchangeIdentity => SessionId == 0 ? this : SessionId;
+
     /// <summary>The peer's negotiated MRP configuration used to compute retransmit timing.</summary>
     ReliableMessageProtocolConfig RemoteMrpConfig { get; }
 

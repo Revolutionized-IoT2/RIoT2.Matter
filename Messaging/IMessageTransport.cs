@@ -7,6 +7,9 @@ namespace RIoT2.Matter.Messaging;
 /// </summary>
 public interface IMessageTransport
 {
+    /// <summary>Stable identity of the remote transport endpoint, shared by wrappers for that peer.</summary>
+    object PeerIdentity => this;
+
     /// <summary>Transmits an already-encoded message frame to the bound peer.</summary>
     ValueTask SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken = default);
 }

@@ -49,6 +49,9 @@ public sealed class MatterControllerOptions
     /// <summary>The DER-encoded PAA certificates the device-attestation chain must anchor to.</summary>
     public IList<byte[]> TrustedPaaCertificates { get; } = new List<byte[]>();
 
+    /// <summary>Explicitly trusted DER Certification Declaration signer certificates; no default/test trust.</summary>
+    public IList<byte[]> TrustedCertificationDeclarationSigners { get; } = new List<byte[]>();
+
     /// <summary>How long an idle operational session is kept before eviction by background hosting.</summary>
     public TimeSpan OperationalSessionIdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
 

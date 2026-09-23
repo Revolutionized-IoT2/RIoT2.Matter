@@ -11,7 +11,7 @@ namespace RIoT2.Matter.Clusters;
 /// The Access Control cluster (0x001F) on the root endpoint: owns the node's fabric-scoped ACL and
 /// optional Extension lists, exposes the per-entry/per-fabric limits, and emits
 /// AccessControlEntryChanged / AccessControlExtensionChanged on every mutation. Reads are
-/// fabric-filtered and writes apply only to the accessing fabric (spec §7.13.5); the cluster also
+/// fabric-filtered and writes apply only to the accessing fabric (spec ï¿½7.13.5); the cluster also
 /// answers <see cref="GrantsAccess"/> so a future access-enforcement layer can gate Interaction Model
 /// requests per fabric. Mandatory on endpoint 0. See the Matter Core Specification, section 9.10.
 /// </summary>
@@ -28,33 +28,33 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
     /// <summary>The Access Control cluster identifier (0x001F).</summary>
     public static readonly ClusterId ClusterId = new(0x001F);
 
-    // Attribute ids (spec §9.10.5).
+    // Attribute ids (spec ï¿½9.10.5).
     private const uint AclId = 0x0000;
     private const uint ExtensionId = 0x0001;
     private const uint SubjectsPerEntryId = 0x0002;
     private const uint TargetsPerEntryId = 0x0003;
     private const uint EntriesPerFabricId = 0x0004;
 
-    // Event ids (spec §9.10.7).
+    // Event ids (spec ï¿½9.10.7).
     private static readonly EventId AclEntryChangedEventId = new(0x00);
     private static readonly EventId AclExtensionChangedEventId = new(0x01);
 
-    // AccessControlEntryStruct field tags (spec §9.10.5.6).
+    // AccessControlEntryStruct field tags (spec ï¿½9.10.5.6).
     private const byte PrivilegeTag = 1;
     private const byte AuthModeTag = 2;
     private const byte SubjectsTag = 3;
     private const byte TargetsTag = 4;
 
-    // AccessControlTargetStruct field tags (spec §9.10.5.5).
+    // AccessControlTargetStruct field tags (spec ï¿½9.10.5.5).
     private const byte TargetClusterTag = 0;
     private const byte TargetEndpointTag = 1;
     private const byte TargetDeviceTypeTag = 2;
 
-    // AccessControlExtensionStruct + shared fabric-scoped field tag (spec §7.13.2, §9.10.5.7).
+    // AccessControlExtensionStruct + shared fabric-scoped field tag (spec ï¿½7.13.2, ï¿½9.10.5.7).
     private const byte ExtensionDataTag = 1;
     private const byte FabricIndexTag = 254;
 
-    // *Changed event field tags (spec §9.10.7.1).
+    // *Changed event field tags (spec ï¿½9.10.7.1).
     private const byte AdminNodeIdTag = 1;
     private const byte AdminPasscodeIdTag = 2;
     private const byte ChangeTypeTag = 3;
@@ -119,6 +119,50 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
     /// <inheritdoc />
     public override IReadOnlyCollection<EventId> EventIds => _eventIds;
 
+    public override AccessPrivilege RequiredEventReadPrivilege(EventId eventId) => AccessPrivilege.Administer;
+
+    /// <summary>Raised after an ACL or extension mutation, for durable storage.</summary>
+    public event EventHandler? Changed;
+
+    internal (AccessControlEntry[] Entries, AccessControlExtension[] Extensions) ExportFabric(FabricIndex fabric)
+    {
+        lock (_gate)
+        {
+            return (_entries.Where(e => e.FabricIndex == fabric).Select(e => e with
+            {
+                Subjects = e.Subjects?.ToArray(),
+                Targets = e.Targets?.ToArray(),
+            }).ToArray(), _extensions.Where(e => e.FabricIndex == fabric)
+                .Select(e => e with { Data = e.Data.ToArray() }).ToArray());
+        }
+    }
+
+    internal void ValidateSnapshot(FabricIndex fabric, IReadOnlyList<AccessControlEntry> entries,
+        IReadOnlyList<AccessControlExtension> extensions)
+    {
+        if (fabric == FabricIndex.NoFabric || entries.Count > _entriesPerFabric ||
+            entries.Any(e => e.FabricIndex != fabric || Validate(e) != InteractionModelStatusCode.Success) ||
+            extensions.Count > 1 || (!_supportExtensions && extensions.Count != 0) ||
+            extensions.Any(e => e.FabricIndex != fabric || e.Data is null || e.Data.Length > MaxExtensionDataLength))
+        {
+            throw new InvalidDataException("Invalid persisted access control state.");
+        }
+    }
+
+    internal void RestoreFabric(FabricIndex fabric, IReadOnlyList<AccessControlEntry> entries,
+        IReadOnlyList<AccessControlExtension> extensions)
+    {
+        ValidateSnapshot(fabric, entries, extensions);
+        lock (_gate)
+        {
+            _entries.RemoveAll(e => e.FabricIndex == fabric);
+            _extensions.RemoveAll(e => e.FabricIndex == fabric);
+            _entries.AddRange(entries.Select(e => e with { Subjects = e.Subjects?.ToArray(), Targets = e.Targets?.ToArray() }));
+            _extensions.AddRange(extensions.Select(e => e with { Data = e.Data.ToArray() }));
+        }
+        IncrementDataVersion();
+    }
+
     /// <summary>A snapshot of every ACL entry across all fabrics; for inspection and enforcement.</summary>
     public IReadOnlyList<AccessControlEntry> Entries
     {
@@ -160,6 +204,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
 
         EmitEntryEvent(context: null, entry.FabricIndex, AccessControlChangeType.Added, entry);
         IncrementDataVersion();
+        Changed?.Invoke(this, EventArgs.Empty);
         return InteractionModelStatusCode.Success;
     }
 
@@ -205,6 +250,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
         }
 
         IncrementDataVersion();
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -222,7 +268,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
     /// <summary>
     /// As <see cref="GrantsAccess(FabricIndex, AccessControlEntryAuthMode, ulong, EndpointId, ClusterId, AccessControlEntryPrivilege)"/>,
     /// but also matches CASE Authenticated Tag (CAT) subjects against the accessing peer's
-    /// <paramref name="peerCaseAuthenticatedTags"/> carried in its NOC (spec §6.6.2.2).
+    /// <paramref name="peerCaseAuthenticatedTags"/> carried in its NOC (spec ï¿½6.6.2.2).
     /// </summary>
     public bool GrantsAccess(
         FabricIndex fabric, AccessControlEntryAuthMode authMode, ulong subject,
@@ -289,6 +335,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             _ => InteractionModelStatusCode.UnsupportedWrite,
         };
 
+        if (status == InteractionModelStatusCode.Success) { Changed?.Invoke(this, EventArgs.Empty); }
         return new ValueTask<InteractionModelStatusCode>(status);
     }
 
@@ -303,6 +350,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             _ => InteractionModelStatusCode.UnsupportedWrite,
         };
 
+        if (status == InteractionModelStatusCode.Success) { Changed?.Invoke(this, EventArgs.Empty); }
         return new ValueTask<InteractionModelStatusCode>(status);
     }
 
@@ -326,7 +374,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
 
         for (int i = 0; i < incoming.Count; i++)
         {
-            incoming[i] = incoming[i] with { FabricIndex = fabric }; // the server stamps the accessing fabric (spec §7.13.5).
+            incoming[i] = incoming[i] with { FabricIndex = fabric }; // the server stamps the accessing fabric (spec ï¿½7.13.5).
             var validation = Validate(incoming[i]);
             if (validation != InteractionModelStatusCode.Success)
             {
@@ -450,7 +498,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
 
         if (incoming.Count > 1)
         {
-            return InteractionModelStatusCode.ConstraintError; // at most one extension per fabric (spec §9.10.5.7).
+            return InteractionModelStatusCode.ConstraintError; // at most one extension per fabric (spec ï¿½9.10.5.7).
         }
 
         List<(AccessControlChangeType Type, AccessControlExtension Extension)> changes = new();
@@ -544,7 +592,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
         writer.StartArray(tag);
         foreach (var entry in snapshot)
         {
-            // Fabric-filtered reads return only the accessing fabric's entries (spec §7.13.2).
+            // Fabric-filtered reads return only the accessing fabric's entries (spec ï¿½7.13.2).
             if (context.IsFabricFiltered && entry.FabricIndex != context.AccessingFabricIndex)
             {
                 continue;
@@ -590,7 +638,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             WriteEntry(writer, TlvTag.ContextSpecific(LatestValueTag), entry);
             writer.WriteUnsignedInteger(TlvTag.ContextSpecific(FabricIndexTag), fabric.Value);
             writer.EndContainer();
-        });
+        }, fabric);
     }
 
     private void EmitExtensionEvent(InteractionContext? context, FabricIndex fabric, AccessControlChangeType changeType, AccessControlExtension extension)
@@ -605,7 +653,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             WriteExtension(writer, TlvTag.ContextSpecific(LatestValueTag), extension);
             writer.WriteUnsignedInteger(TlvTag.ContextSpecific(FabricIndexTag), fabric.Value);
             writer.EndContainer();
-        });
+        }, fabric);
     }
 
     private static (ulong? Node, ulong? Passcode) DeriveAdmin(InteractionContext? context, FabricIndex fabric)
@@ -627,7 +675,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
             return InteractionModelStatusCode.ConstraintError;
         }
 
-        // Group-authenticated entries cannot carry Administer privilege (spec §9.10.5.6).
+        // Group-authenticated entries cannot carry Administer privilege (spec ï¿½9.10.5.6).
         if (entry.AuthMode == AccessControlEntryAuthMode.Group && entry.Privilege == AccessControlEntryPrivilege.Administer)
         {
             return InteractionModelStatusCode.ConstraintError;
@@ -672,7 +720,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
     private static bool SubjectMatches(AccessControlEntry entry, ulong subject) =>
         entry.Subjects is not { Count: > 0 } subjects || subjects.Contains(subject);
 
-    // The CASE prefix (upper 32 bits) marking a subject value as a CASE Authenticated Tag (spec §6.6.2.2).
+    // The CASE prefix (upper 32 bits) marking a subject value as a CASE Authenticated Tag (spec ï¿½6.6.2.2).
     private const ulong CaseAuthenticatedTagPrefix = 0xFFFF_FFFD_0000_0000UL;
 
     private static bool SubjectMatches(AccessControlEntry entry, ulong subject, IReadOnlyList<uint> peerCaseAuthenticatedTags)
@@ -685,7 +733,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
         foreach (var entrySubject in subjects)
         {
             // A CAT subject (0xFFFFFFFD_<tag><version>) matches when the peer NOC carries a CAT with the
-            // same 16-bit tag identifier and a version >= the entry's version (spec §6.6.2.2).
+            // same 16-bit tag identifier and a version >= the entry's version (spec ï¿½6.6.2.2).
             if ((entrySubject & 0xFFFF_FFFF_0000_0000UL) == CaseAuthenticatedTagPrefix)
             {
                 var entryCat = (uint)(entrySubject & 0xFFFF_FFFFUL);
@@ -1098,7 +1146,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
     }
 
     /// <inheritdoc />
-    /// <remarks>All Access Control access requires Administer, so the ACL cannot be read or altered by a lesser privilege (spec §9.10.4).</remarks>
+    /// <remarks>All Access Control access requires Administer, so the ACL cannot be read or altered by a lesser privilege (spec ï¿½9.10.4).</remarks>
     public override AccessPrivilege RequiredReadPrivilege(AttributeId attributeId) => AccessPrivilege.Administer;
 
     /// <inheritdoc />
@@ -1116,7 +1164,7 @@ public sealed class AccessControlCluster : Cluster, IAccessResolver
         }
 
         // A PASE session exists only while a commissioning window is open and is granted Administer over
-        // the whole node so the commissioner can configure it before any fabric exists (spec §6.6.2.1).
+        // the whole node so the commissioner can configure it before any fabric exists (spec ï¿½6.6.2.1).
         if (context.AccessingFabricIndex == FabricIndex.NoFabric)
         {
             return true;

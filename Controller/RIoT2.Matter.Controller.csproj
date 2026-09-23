@@ -16,10 +16,12 @@
   <ItemGroup>
     <PackageReference Include="Scalar.AspNetCore" Version="2.0.7" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\RIoT2.Matter.csproj" />
+    <InternalsVisibleTo Include="RIoT2.Matter.Tests" />
   </ItemGroup>
 
 </Project>

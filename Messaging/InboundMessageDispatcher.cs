@@ -26,14 +26,14 @@ public sealed class InboundMessageDispatcher
     // window is created with rollover allowed. Keyed by the peer's ephemeral source node id (or a
     // sentinel when the header omits one) so retransmissions from one commissioner are recognised as
     // duplicates without a second peer's counters colliding.
-    private readonly ConcurrentDictionary<ulong, MessageReceptionState> _unsecuredReceptionStates = new();
+    private readonly ConcurrentDictionary<(object Peer, ulong Source), MessageReceptionState> _unsecuredReceptionStates = new();
 
     // The unsecured session per peer must persist across datagrams: multi-message handshakes (PASE,
     // and especially CASE) key their per-exchange state to a single session instance via the
     // ExchangeManager. Minting a fresh session per inbound datagram would strand each handshake step
     // (Sigma1, the Sigma2 ack, Sigma3) on a different ExchangeContext, so the handshake never advances
     // and the initiator retransmits forever. Keyed by peer source node id like the reception states.
-    private readonly ConcurrentDictionary<ulong, UnsecuredMessageSession> _unsecuredSessions = new();
+    private readonly ConcurrentDictionary<(object Peer, ulong Source), UnsecuredMessageSession> _unsecuredSessions = new();
     private const ulong AnonymousPeerKey = 0UL;
 
     /// <param name="sessions">The session table used to resolve secured datagrams.</param>
@@ -125,7 +125,7 @@ public sealed class InboundMessageDispatcher
             // message from a peer anchors its window. A retransmission of an already-accepted counter is
             // decoded and returned as a duplicate so the exchange layer re-acks it without reprocessing
             // (spec §4.12.5); a counter too old for the window is dropped outright.
-            var peerKey = header.SourceNodeId?.Value ?? AnonymousPeerKey;
+            var peerKey = (replyTransport.PeerIdentity, header.SourceNodeId?.Value ?? AnonymousPeerKey);
             var reception = _unsecuredReceptionStates.GetOrAdd(peerKey, static _ => new MessageReceptionState(rolloverAllowed: true));
             if (!reception.TryAccept(header.MessageCounter, out isDuplicate) && !isDuplicate)
             {

@@ -31,6 +31,9 @@ public sealed record GeneratedEvent
     /// <summary>The event payload as a standalone TLV element (TlvCopier.Capture form).</summary>
     public required ReadOnlyMemory<byte> Payload { get; init; }
 
+    /// <summary>The owning fabric for a fabric-scoped event; null for global events.</summary>
+    public FabricIndex? FabricIndex { get; init; }
+
     /// <summary>Projects this event to its <see cref="EventDataIB"/> wire form (absolute timestamp).</summary>
     public EventDataIB ToEventData() => new()
     {

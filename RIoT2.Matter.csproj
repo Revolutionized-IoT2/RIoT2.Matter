@@ -4,12 +4,17 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Version>0.1.13</Version>
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="RIoT2.Matter.Tests" />
     <Compile Remove="ControlBridge\**" />
     <Compile Remove="Controller\**" />
     <Compile Remove="OnOffSample\**" />
+    <Compile Remove="Tests\**" />
+    <EmbeddedResource Remove="Tests\**" />
+    <None Remove="Tests\**" />
     <EmbeddedResource Remove="ControlBridge\**" />
     <EmbeddedResource Remove="Controller\**" />
     <EmbeddedResource Remove="OnOffSample\**" />

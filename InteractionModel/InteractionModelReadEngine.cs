@@ -46,7 +46,7 @@ public sealed class InteractionModelReadEngine
         var eventReports = new List<EventReportIB>();
         if (request.EventRequests is { Count: > 0 } eventPaths)
         {
-            ReadEvents(eventPaths, request.EventFilters, eventReports);
+            ReadEvents(eventPaths, request.EventFilters, context, eventReports);
         }
 
         return new ReportDataMessage
@@ -210,7 +210,8 @@ public sealed class InteractionModelReadEngine
         }));
     }
 
-    private void ReadEvents(IReadOnlyList<EventPathIB> paths, IReadOnlyList<EventFilterIB>? eventFilters, List<EventReportIB> reports)
+    private void ReadEvents(IReadOnlyList<EventPathIB> paths, IReadOnlyList<EventFilterIB>? eventFilters,
+        InteractionContext context, List<EventReportIB> reports)
     {
         // A concrete (endpoint+cluster+event) path that fails to resolve yields a per-path status;
         // wildcard paths silently match whatever the event log holds.
@@ -222,6 +223,11 @@ public sealed class InteractionModelReadEngine
             }
 
             var status = ResolveConcreteEventPath(path);
+            if (status == InteractionModelStatusCode.Success &&
+                !CanReadEvent(path.Endpoint!.Value, path.Cluster!.Value, path.Event!.Value, context))
+            {
+                status = InteractionModelStatusCode.UnsupportedAccess;
+            }
             if (status != InteractionModelStatusCode.Success)
             {
                 reports.Add(EventReportIB.ForStatus(new EventStatusIB
@@ -234,10 +240,30 @@ public sealed class InteractionModelReadEngine
 
         // Pull matching events at or above the filter floor; the store returns them number-ordered.
         var minEventNumber = EventPathMatching.MinimumEventNumber(eventFilters);
-        foreach (var generated in _node.Events.Query(e => EventPathMatching.MatchesAny(e, paths), minEventNumber))
+        foreach (var generated in _node.Events.Query(
+            e => EventPathMatching.MatchesAny(e, paths) && CanReadEvent(e, context), minEventNumber))
         {
             reports.Add(EventReportIB.ForData(generated.ToEventData()));
         }
+
+    }
+
+    internal bool CanReadEvent(GeneratedEvent generated, InteractionContext context) =>
+        (generated.FabricIndex is null || generated.FabricIndex == context.AccessingFabricIndex) &&
+        CanReadEvent(generated.Endpoint, generated.Cluster, generated.Event, context);
+
+    private bool CanReadEvent(EndpointId endpointId, ClusterId clusterId, EventId eventId, InteractionContext context)
+    {
+        if (!_node.Endpoints.TryGetValue(endpointId, out var endpoint) ||
+            !endpoint.TryGetCluster(clusterId, out var cluster) || cluster is null ||
+            !cluster.EventIds.Contains(eventId))
+        {
+            return false;
+        }
+
+        var resolver = _node.Root.Clusters.Values.OfType<IAccessResolver>().FirstOrDefault();
+        return context.IsSecure && resolver is not null &&
+            resolver.GrantsAccess(context, endpointId, clusterId, cluster.RequiredEventReadPrivilege(eventId));
     }
 
     private InteractionModelStatusCode ResolveConcreteEventPath(EventPathIB path)

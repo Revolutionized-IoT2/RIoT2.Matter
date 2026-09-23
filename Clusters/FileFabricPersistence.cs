@@ -112,7 +112,8 @@ public sealed class FileFabricPersistence : IDisposable
         var plaintext = SnapshotEnvelope.Open(envelope, keyPassword);
         try
         {
-            return JsonSerializer.Deserialize<List<FabricSnapshot>>(plaintext, SerializerOptions);
+            return JsonSerializer.Deserialize<List<FabricSnapshot>>(plaintext, SerializerOptions)
+                ?? throw new InvalidDataException("The persisted fabric snapshot is null or corrupt; refusing to start with a fresh identity.");
         }
         finally
         {
@@ -121,6 +122,14 @@ public sealed class FileFabricPersistence : IDisposable
     }
 
     private void Save()
+    {
+        lock (_ioGate)
+        {
+            SaveLocked();
+        }
+    }
+
+    private void SaveLocked()
     {
         var snapshots = _manager.ExportSnapshot(_keyPassword);
 

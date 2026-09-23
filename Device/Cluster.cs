@@ -50,6 +50,9 @@ public abstract class Cluster
     /// <summary>The privilege required to read <paramref name="attributeId"/>. Defaults to View (spec �6.6.2).</summary>
     public virtual AccessPrivilege RequiredReadPrivilege(AttributeId attributeId) => AccessPrivilege.View;
 
+    /// <summary>The privilege required to read an event. Defaults to View.</summary>
+    public virtual AccessPrivilege RequiredEventReadPrivilege(EventId eventId) => AccessPrivilege.View;
+
     /// <summary>The privilege required to write <paramref name="attributeId"/>. Defaults to Operate (spec �6.6.2).</summary>
     public virtual AccessPrivilege RequiredWritePrivilege(AttributeId attributeId) => AccessPrivilege.Operate;
 
@@ -145,7 +148,8 @@ public abstract class Cluster
     /// and returns the allocated node-wide event number. Returns 0 when the cluster is not yet
     /// attached to a node.
     /// </summary>
-    protected ulong EmitEvent(EventId eventId, EventPriority priority, Action<TlvWriter> writePayload)
+    protected ulong EmitEvent(EventId eventId, EventPriority priority, Action<TlvWriter> writePayload,
+        FabricIndex? fabricIndex = null)
     {
         ArgumentNullException.ThrowIfNull(writePayload);
 
@@ -158,7 +162,7 @@ public abstract class Cluster
 
         var buffer = new ArrayBufferWriter<byte>();
         writePayload(new TlvWriter(buffer));
-        return sink.Record(_endpointId, Id, eventId, priority, buffer.WrittenMemory);
+        return sink.Record(_endpointId, Id, eventId, priority, buffer.WrittenMemory, fabricIndex);
     }
 
     /// <summary>Reads a cluster-specific attribute. See <see cref="ReadAttributeAsync"/> for the write contract.</summary>

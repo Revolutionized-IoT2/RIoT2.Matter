@@ -48,6 +48,7 @@ public sealed class CommissioningSupport : IDisposable
         GroupKeys = groupKeys;
         AdministratorCommissioning = administratorCommissioning;
         Network = network;
+        manager.BindAccessControl(accessControl);
 
         // Connect the fail-safe: completing commissioning commits the pending fabric; a timeout rolls it back.
         _onCommissioningCompleted = (_, _) =>
@@ -68,13 +69,16 @@ public sealed class CommissioningSupport : IDisposable
         // purges the fabric's entries and key sets.
         _onFabricAdded = (_, e) =>
         {
-            accessControl.AddEntry(new AccessControlEntry
+            if (!e.IsRestore)
             {
-                Privilege = AccessControlEntryPrivilege.Administer,
-                AuthMode = AccessControlEntryAuthMode.Case,
-                Subjects = new[] { e.CaseAdminSubject },
-                FabricIndex = e.FabricIndex,
-            });
+                accessControl.AddEntry(new AccessControlEntry
+                {
+                    Privilege = AccessControlEntryPrivilege.Administer,
+                    AuthMode = AccessControlEntryAuthMode.Case,
+                    Subjects = new[] { e.CaseAdminSubject },
+                    FabricIndex = e.FabricIndex,
+                });
+            }
 
             // Populate the fabric's IPK group key set (id 0), which CASE authenticates against (spec 11.2.4.1).
             groupKeys.SeedIpk(e.FabricIndex, e.EpochIpk);
@@ -98,8 +102,8 @@ public sealed class CommissioningSupport : IDisposable
     public AccessControlCluster AccessControl { get; }
 
     /// <summary>
-    /// The Group Key Management backend owning the fabric-scoped group key sets — including the IPK key
-    /// set (id 0) seeded on AddNOC that CASE authenticates against — and the GroupKeyMap. Purged on
+    /// The Group Key Management backend owning the fabric-scoped group key sets ï¿½ including the IPK key
+    /// set (id 0) seeded on AddNOC that CASE authenticates against ï¿½ and the GroupKeyMap. Purged on
     /// fabric removal / fail-safe rollback.
     /// </summary>
     public GroupKeyManager GroupKeys { get; }

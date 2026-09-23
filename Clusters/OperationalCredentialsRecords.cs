@@ -71,12 +71,13 @@ public sealed class FabricAddedEventArgs : EventArgs
     /// <param name="fabricIndex">The node-local index of the newly added fabric.</param>
     /// <param name="caseAdminSubject">The AddNOC CaseAdminSubject (an operational node id or CAT) to grant Administer.</param>
     /// <param name="epochIpk">The AddNOC IPKValue (16-octet epoch IPK) seeding the fabric's IPK group key set.</param>
-    public FabricAddedEventArgs(FabricIndex fabricIndex, ulong caseAdminSubject, byte[] epochIpk)
+    public FabricAddedEventArgs(FabricIndex fabricIndex, ulong caseAdminSubject, byte[] epochIpk, bool isRestore = false)
     {
         ArgumentNullException.ThrowIfNull(epochIpk);
         FabricIndex = fabricIndex;
         CaseAdminSubject = caseAdminSubject;
         EpochIpk = (byte[])epochIpk.Clone();
+        IsRestore = isRestore;
     }
 
     /// <summary>The node-local index of the newly added fabric.</summary>
@@ -87,6 +88,9 @@ public sealed class FabricAddedEventArgs : EventArgs
 
     /// <summary>The 16-octet epoch IPK from AddNOC's IPKValue, seeding the fabric's IPK group key set (id 0).</summary>
     public byte[] EpochIpk { get; }
+
+    /// <summary>True when authorization was restored rather than newly commissioned.</summary>
+    public bool IsRestore { get; }
 }
 
 /// <summary>

@@ -46,6 +46,11 @@ public sealed class EventManager : IEventSink
 
     /// <inheritdoc />
     public ulong Record(EndpointId endpoint, ClusterId cluster, EventId eventId, EventPriority priority, ReadOnlyMemory<byte> payload)
+        => Record(endpoint, cluster, eventId, priority, payload, null);
+
+    /// <inheritdoc />
+    public ulong Record(EndpointId endpoint, ClusterId cluster, EventId eventId, EventPriority priority, ReadOnlyMemory<byte> payload,
+        FabricIndex? fabricIndex)
     {
         GeneratedEvent recorded;
         lock (_gate)
@@ -59,6 +64,7 @@ public sealed class EventManager : IEventSink
                 Priority = priority,
                 EpochTimestampMs = (ulong)_timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
                 Payload = payload,
+                FabricIndex = fabricIndex,
             };
 
             _log.AddLast(recorded);

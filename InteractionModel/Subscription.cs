@@ -242,7 +242,8 @@ public sealed class Subscription
 
         // Events: pull everything recorded beyond the cursor that matches the subscription's paths.
         IReadOnlyList<GeneratedEvent> newEvents = _eventPaths.Count > 0
-            ? _events.Query(e => EventPathMatching.MatchesAny(e, _eventPaths), _lastEventNumber + 1)
+            ? _events.Query(e => EventPathMatching.MatchesAny(e, _eventPaths) &&
+                _readEngine.CanReadEvent(e, _context), _lastEventNumber + 1)
             : [];
 
         if (attributeReports is null && newEvents.Count == 0)
