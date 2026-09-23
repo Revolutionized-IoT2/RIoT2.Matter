@@ -466,7 +466,9 @@ Implemented and interoperable per the Matter Core Specification:
   event generation, element-wise list writes.
 - ✅ Commissioning-support clusters (General/Operational Credentials/Network/Access Control/Admin
   Commissioning/Group Key Management/General Diagnostics).
-- ✅ Application clusters: Identify, On/Off, Level Control (with On/Off coupling).
+- ✅ Application clusters: Identify, On/Off, Level Control (with On/Off coupling), Color Control
+  (hue/saturation + colour temperature), Thermostat (heating/cooling/auto), and the read-only sensor set
+  (Temperature, Relative Humidity, Illuminance, Occupancy Sensing, Boolean State).
 - ✅ Composed **lighting device type** (On/Off Light 0x0100, Dimmable Light 0x0101).
 - ✅ **Certificate policy enforcement**: validity-period + role-based BasicConstraints/KeyUsage/EKU
   checks (`MatterCertificateValidator`), enforced by `OperationalCredentialsManager` on
@@ -479,6 +481,8 @@ Known gaps / deferred (contributions welcome):
 - ⏳ MRP **standalone acknowledgements** in all paths.
 - ⏳ Wi-Fi/Thread Network Commissioning Scan/Add/Connect commands (Ethernet feature only).
 - ⏳ Manual pairing-code encoding (QR onboarding is available).
+- ⏳ Color Control XY, enhanced hue and colour loop; Thermostat unoccupied setpoints, weekly schedules
+  and setback.
 
 ---
 

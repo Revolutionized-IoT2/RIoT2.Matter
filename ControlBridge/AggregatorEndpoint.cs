@@ -20,8 +20,10 @@ namespace RIoT2.Matter.ControlBridge;
 /// // ... later, when the underlying device is gone:
 /// await aggregator.RemoveBridgedDeviceAsync(lamp);
 /// </code>
-/// Bridged endpoint ids are allocated sequentially above <see cref="Endpoint"/>'s id; supply a
-/// persisted id map if a controller must keep its references stable across restarts (a later phase).
+/// Bridged endpoint ids are allocated sequentially above <see cref="Endpoint"/>'s id. A host that
+/// persists its own device-to-endpoint map can instead pin each id by passing
+/// <c>preferredEndpointId</c> to <see cref="AddBridgedDeviceAsync"/>, so a commissioner's references
+/// stay valid across restarts.
 /// </remarks>
 public sealed class AggregatorEndpoint
 {
@@ -66,8 +68,18 @@ public sealed class AggregatorEndpoint
     /// Descriptor, Bridged Device Basic Information, and the definition's application clusters), attaches
     /// <paramref name="adapter"/>, and publishes it into the node so the root PartsList reports it.
     /// </summary>
+    /// <param name="definition">The bridged device's identity, device type, and application clusters.</param>
+    /// <param name="adapter">The adapter mirroring state between the clusters and the real device.</param>
+    /// <param name="preferredEndpointId">
+    /// An endpoint id to pin the device to, so a host with a persisted device-to-endpoint map keeps a
+    /// commissioner's references stable across restarts. It is honoured when the id is free and above
+    /// the aggregator's own id; otherwise the next sequential id is used. Pass <see langword="null"/>
+    /// for plain sequential allocation.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the adapter attach.</param>
     public async ValueTask<BridgedDevice> AddBridgedDeviceAsync(
-        BridgedDeviceDefinition definition, IBridgedDeviceAdapter adapter, CancellationToken cancellationToken = default)
+        BridgedDeviceDefinition definition, IBridgedDeviceAdapter adapter,
+        EndpointId? preferredEndpointId = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(adapter);
@@ -76,7 +88,7 @@ public sealed class AggregatorEndpoint
         EndpointId id;
         lock (_gate)
         {
-            id = AllocateEndpointIdLocked();
+            id = ReserveEndpointIdLocked(preferredEndpointId);
         }
 
         // Compose the dynamic endpoint. The application device type is carried alongside Bridged Node
@@ -126,6 +138,29 @@ public sealed class AggregatorEndpoint
         _node.RemoveEndpoint(device.EndpointId);
         return true;
     }
+
+    // Takes the caller's preferred id when it is usable, otherwise the next free sequential id. The
+    // caller holds the gate.
+    private EndpointId ReserveEndpointIdLocked(EndpointId? preferred)
+    {
+        if (preferred is { } candidate && CanPinLocked(candidate))
+        {
+            // Keep sequential allocation ahead of every pinned id so a later unpinned add cannot collide
+            // with one that is pinned but not yet added.
+            if (candidate.Value >= _nextEndpointId)
+            {
+                _nextEndpointId = checked((ushort)(candidate.Value + 1));
+            }
+
+            return candidate;
+        }
+
+        return AllocateEndpointIdLocked();
+    }
+
+    // A pinned id must be free on the node and above the aggregator's own id (endpoint 0 is the root).
+    private bool CanPinLocked(EndpointId candidate)
+        => candidate.Value > Endpoint.Id.Value && !_node.Endpoints.ContainsKey(candidate);
 
     // Finds the next free endpoint id, skipping any already present on the node. The caller holds the gate.
     private EndpointId AllocateEndpointIdLocked()

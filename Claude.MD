@@ -74,6 +74,19 @@
       - [x] On/Off `0x0006`: OnOff attribute + On/Off/Toggle commands; foundation for the sample light.
       - [x] Level Control `0x0008`: CurrentLevel/min/max/remaining + MoveToLevel/Move/Step/Stop, including the On/Off coupling (`OnLevel`, options).
       - [x] Groups `0x0004`: group membership backing group-cast commands. _(optional / deferred.)_
+    - **Application clusters (sensor profile)** _(read-only, device-driven; no commands.)_
+      - [x] Temperature Measurement `0x0402`: MeasuredValue/Min/Max/Tolerance in 0.01 Celsius.
+      - [x] Relative Humidity Measurement `0x0405`: MeasuredValue/Min/Max/Tolerance in 0.01 %.
+      - [x] Illuminance Measurement `0x0400`: MeasuredValue/Min/Max/Tolerance + LightSensorType, on the spec's log scale.
+      - [x] Occupancy Sensing `0x0406`: Occupancy bitmap + OccupancySensorType(+Bitmap). _(revision 4 feature flags deferred.)_
+      - [x] Boolean State `0x0045`: StateValue + StateChange event; backs Contact Sensor `0x0015`.
+    - **Application clusters (colour-light and thermostat profiles)**
+      - [x] Color Control `0x0300` (HS + CT features): CurrentHue/CurrentSaturation/ColorTemperatureMireds + ColorMode/ColorCapabilities, MoveTo/Move/Step for hue, saturation and colour temperature, StopMoveStep, on the same `TimeProvider` transition loop as Level Control. _(XY, enhanced hue and colour loop deferred.)_
+      - [x] Thermostat `0x0201` (HEAT/COOL/AUTO features): LocalTemperature, occupied heating/cooling setpoints with limits and dead band, SystemMode/ControlSequenceOfOperation/ThermostatRunningMode + SetpointRaiseLower. _(unoccupied setpoints, schedules and setback deferred.)_
+    - **Attestation material**
+      - [x] `Credentials/TestAttestationFactory`: mints and persists a VID/PID-specific TEST DAC/PAI/CD
+        chain off the embedded CHIP test PAA and CD-signing keys, so a host runs without chip-cert.
+        _(TEST material only; a production controller rejects it unless the VID/PID is registered.)_
     - **Composition & validation**
       - [x] Lighting device-type builder: assemble endpoint 0 (Descriptor + Basic Information + commissioning-support) and a lighting endpoint (Descriptor + Identify + On/Off + Level Control) with the right `Endpoint.DeviceTypes`; the surface the sample app builds on.
       - [ ] Interop validation: read/subscribe/invoke the composed node against chip-tool / Apple Home / Google Home.

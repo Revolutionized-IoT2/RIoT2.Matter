@@ -21,5 +21,14 @@
 	<ItemGroup>
 		<PackageReference Include="Scalar.AspNetCore" Version="2.0.7" />
 		<PackageReference Include="QRCoder" Version="1.6.0" />
+		<!-- CMS SignedData, used to build the Certification Declaration in TestAttestationFactory. -->
+		<PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.0" />
+	</ItemGroup>
+
+	<!-- The fixed CHIP test PAA / CD-signing material TestAttestationFactory mints TEST chains from. -->
+	<ItemGroup>
+		<EmbeddedResource Include="Credentials\Certificates\*.pem">
+			<LogicalName>RIoT2.Matter.Credentials.Certificates.%(Filename)%(Extension)</LogicalName>
+		</EmbeddedResource>
 	</ItemGroup>
 </Project>
