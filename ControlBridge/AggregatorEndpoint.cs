@@ -29,6 +29,7 @@ public sealed class AggregatorEndpoint
 {
     private readonly MatterNode _node;
     private readonly object _gate = new();
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly Dictionary<EndpointId, BridgedDevice> _bridged = new();
 
     private ushort _nextEndpointId;
@@ -85,33 +86,62 @@ public sealed class AggregatorEndpoint
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(definition.ComposeApplicationClusters);
 
-        EndpointId id;
-        lock (_gate)
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            id = ReserveEndpointIdLocked(preferredEndpointId);
+            EndpointId id;
+            lock (_gate) { id = ReserveEndpointIdLocked(preferredEndpointId); }
+            var endpoint = new Endpoint(id);
+            BridgedDevice? device = null;
+            try
+            {
+                endpoint.DeviceTypes.Add(StandardDeviceTypes.BridgedNode);
+                endpoint.DeviceTypes.Add(definition.DeviceType);
+                endpoint.AddCluster(new DescriptorCluster(_node, endpoint));
+                var bridgedInfo = new BridgedDeviceBasicInformationCluster(
+                    definition.NodeLabel, definition.Reachable, definition.Information);
+                endpoint.AddCluster(bridgedInfo);
+                definition.ComposeApplicationClusters(endpoint);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                device = new BridgedDevice(id, endpoint, bridgedInfo, adapter);
+                await adapter.AttachAsync(device, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (_gate)
+                {
+                    _bridged.Add(id, device);
+                    _node.AttachEndpoint(endpoint);
+                }
+                return device;
+            }
+            catch (Exception failure)
+            {
+                var errors = new List<Exception> { failure };
+                lock (_gate)
+                {
+                    if (device is not null && _bridged.TryGetValue(id, out var registered) && ReferenceEquals(registered, device))
+                    {
+                        _bridged.Remove(id);
+                    }
+                    if (_node.Endpoints.TryGetValue(id, out var published) && ReferenceEquals(published, endpoint))
+                    {
+                        try { _node.RemoveEndpoint(id); } catch (Exception cleanup) { errors.Add(cleanup); }
+                    }
+                }
+                if (device is not null)
+                {
+                    try { await adapter.DetachAsync(device, CancellationToken.None).ConfigureAwait(false); }
+                    catch (Exception cleanup) { errors.Add(cleanup); }
+                }
+                try { DisposeClusters(endpoint); } catch (Exception cleanup) { errors.Add(cleanup); }
+                if (errors.Count > 1) { throw new AggregateException("Bridged device attachment and cleanup failed.", errors); }
+                throw;
+            }
         }
-
-        // Compose the dynamic endpoint. The application device type is carried alongside Bridged Node
-        // (0x0013) on the same endpoint, as the Device Library requires for a bridged device.
-        var endpoint = _node.AddEndpoint(id);
-        endpoint.DeviceTypes.Add(StandardDeviceTypes.BridgedNode);
-        endpoint.DeviceTypes.Add(definition.DeviceType);
-        endpoint.AddCluster(new DescriptorCluster(_node, endpoint));
-
-        var bridgedInfo = new BridgedDeviceBasicInformationCluster(
-            definition.NodeLabel, definition.Reachable, definition.Information);
-        endpoint.AddCluster(bridgedInfo);
-
-        definition.ComposeApplicationClusters(endpoint);
-
-        var device = new BridgedDevice(id, endpoint, bridgedInfo, adapter);
-        lock (_gate)
+        finally
         {
-            _bridged[id] = device;
+            _lifecycleGate.Release();
         }
-
-        await adapter.AttachAsync(device, cancellationToken).ConfigureAwait(false);
-        return device;
     }
 
     /// <summary>
@@ -122,21 +152,45 @@ public sealed class AggregatorEndpoint
     {
         ArgumentNullException.ThrowIfNull(device);
 
-        bool known;
-        lock (_gate)
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            known = _bridged.Remove(device.EndpointId);
-        }
+            lock (_gate)
+            {
+                if (!_bridged.TryGetValue(device.EndpointId, out var current) || !ReferenceEquals(current, device))
+                {
+                    return false;
+                }
+            }
 
-        if (!known)
+            // Keep both registries intact on failure/cancellation so the same device can be retried.
+            await device.Adapter.DetachAsync(device, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                lock (_gate)
+                {
+                    _bridged.Remove(device.EndpointId);
+                    if (_node.Endpoints.TryGetValue(device.EndpointId, out var current) && ReferenceEquals(current, device.Endpoint))
+                    {
+                        _node.RemoveEndpoint(device.EndpointId);
+                    }
+                }
+            }
+            finally { DisposeClusters(device.Endpoint); }
+            return true;
+        }
+        finally { _lifecycleGate.Release(); }
+    }
+
+    private static void DisposeClusters(Endpoint endpoint)
+    {
+        List<Exception>? failures = null;
+        foreach (var disposable in endpoint.Clusters.Values.OfType<IDisposable>())
         {
-            return false;
+            try { disposable.Dispose(); }
+            catch (Exception ex) { (failures ??= []).Add(ex); }
         }
-
-        // Detach the adapter before tearing down the endpoint so it stops touching the clusters.
-        await device.Adapter.DetachAsync(device, cancellationToken).ConfigureAwait(false);
-        _node.RemoveEndpoint(device.EndpointId);
-        return true;
+        if (failures is not null) { throw new AggregateException("Bridged cluster cleanup failed.", failures); }
     }
 
     // Takes the caller's preferred id when it is usable, otherwise the next free sequential id. The
@@ -160,7 +214,7 @@ public sealed class AggregatorEndpoint
 
     // A pinned id must be free on the node and above the aggregator's own id (endpoint 0 is the root).
     private bool CanPinLocked(EndpointId candidate)
-        => candidate.Value > Endpoint.Id.Value && !_node.Endpoints.ContainsKey(candidate);
+        => candidate.Value > Endpoint.Id.Value && !_node.Endpoints.ContainsKey(candidate) && !_bridged.ContainsKey(candidate);
 
     // Finds the next free endpoint id, skipping any already present on the node. The caller holds the gate.
     private EndpointId AllocateEndpointIdLocked()
@@ -169,7 +223,7 @@ public sealed class AggregatorEndpoint
         {
             var candidate = new EndpointId(_nextEndpointId);
             _nextEndpointId = checked((ushort)(_nextEndpointId + 1));
-            if (!_node.Endpoints.ContainsKey(candidate))
+            if (!_node.Endpoints.ContainsKey(candidate) && !_bridged.ContainsKey(candidate))
             {
                 return candidate;
             }

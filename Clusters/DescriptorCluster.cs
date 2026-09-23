@@ -54,6 +54,8 @@ public sealed class DescriptorCluster : Cluster
     /// <inheritdoc />
     public override IReadOnlyCollection<AttributeId> AttributeIds => AttributeIdList;
 
+    internal void NotifyPartsListChanged() => IncrementDataVersion();
+
     /// <inheritdoc />
     protected override ValueTask<InteractionModelStatusCode> ReadAttributeCoreAsync(
         AttributeId attributeId, TlvWriter writer, TlvTag tag, InteractionContext context, CancellationToken cancellationToken)
@@ -99,7 +101,7 @@ public sealed class DescriptorCluster : Cluster
     {
         writer.StartArray(tag);
 
-        // Full-family pattern (spec §9.5.1): the root endpoint (0) enumerates every other endpoint on
+        // Full-family pattern (spec ï¿½9.5.1): the root endpoint (0) enumerates every other endpoint on
         // the node. Non-root endpoints default to an empty PartsList; tree/child composition is deferred.
         if (_endpoint.Id == EndpointId.Root)
         {

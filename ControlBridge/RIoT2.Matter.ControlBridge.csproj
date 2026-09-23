@@ -6,12 +6,12 @@
         <Nullable>enable</Nullable>
         <RootNamespace>RIoT2.Matter.ControlBridge</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <Version>0.1.13</Version>
-        <RIoT2MatterPackageVersion Condition="'$(RIoT2MatterPackageVersion)' == ''">0.1.13</RIoT2MatterPackageVersion>
+        <Version>0.1.14</Version>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="RIoT2.Matter" Version="$(RIoT2MatterPackageVersion)" />
+      <ProjectReference Include="..\RIoT2.Matter.csproj" Condition="'$(RIoT2MatterPackageVersion)' == ''" />
+      <PackageReference Include="RIoT2.Matter" Version="$(RIoT2MatterPackageVersion)" Condition="'$(RIoT2MatterPackageVersion)' != ''" />
     </ItemGroup>
 
 </Project>

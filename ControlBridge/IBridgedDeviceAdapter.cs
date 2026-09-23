@@ -17,13 +17,16 @@ public interface IBridgedDeviceAdapter
     /// <summary>
     /// Called once when the adapter is attached to <paramref name="device"/>. Wire the bridged clusters'
     /// change events to the underlying device here, subscribe to the underlying device's own changes,
-    /// and seed the initial reachability/state.
+    /// and seed the initial reachability/state. The endpoint is not published until this succeeds.
+    /// Do not re-enter this aggregator's add/remove operations from an adapter callback.
     /// </summary>
     ValueTask AttachAsync(BridgedDevice device, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Called once when the bridged device is removed. Unsubscribe from the underlying device and
-    /// release any resources; the bridged endpoint is torn down after this completes.
+    /// Unsubscribes and releases resources before removal. Also called to clean up a failed or cancelled
+    /// attach (with a non-cancelled token); must tolerate partial attachment and retries. If removal
+    /// fails or is cancelled, the endpoint remains registered and removal can be retried. Once this
+    /// succeeds, removal completes even if the caller's token is subsequently cancelled.
     /// </summary>
     ValueTask DetachAsync(BridgedDevice device, CancellationToken cancellationToken = default);
 }

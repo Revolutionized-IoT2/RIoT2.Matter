@@ -60,8 +60,12 @@ dotnet test
 
 The solution includes `Tests\RIoT2.Matter.Tests.csproj`, an offline xUnit suite covering
 attestation trust, event authorization, timed exchanges, unsecured peer isolation, and
-credential/ACL rollback and persistence. Tests create only ephemeral in-memory keys and
+credential/ACL rollback and persistence, plus bridged endpoint lifecycle and topology subscriptions.
+Tests create only ephemeral in-memory keys and
 short-lived encrypted state beneath their build output; no device or network service is required.
+Source builds of ControlBridge reference the local Matter project, so these tests exercise the
+current implementation without requiring an unpublished package. Release workflows can still
+select a packaged dependency explicitly with `-p:RIoT2MatterPackageVersion=<version>`.
 
 Add a reference to the library from your host application:
 
@@ -546,6 +550,24 @@ as a guessed ACL.
 The six protocol fixes are packaged in **RIoT2.Matter 0.1.13**; **RIoT2.Matter.ControlBridge 0.1.13**
 depends on that version. Consumers must update their package references and restore/rebuild; a source
 checkout alone does not update applications still referencing 0.1.12 or earlier.
+
+### Dynamic bridged endpoint lifecycle (0.1.14)
+
+Matter and ControlBridge **0.1.14** retain the 0.1.13 security fixes and additionally make root
+Descriptor.PartsList changes advance its data version, so existing subscriptions and data-version
+filtered reads discover endpoint additions/removals.
+
+Bridged endpoints are composed and attached off-node, then published only after attachment succeeds.
+Failed or cancelled attachment leaves neither a PartsList entry nor a registry entry, invokes adapter
+cleanup with a non-cancelled token, and disposes composed disposable clusters. If cleanup also fails,
+both failures are returned in an `AggregateException`; the adapter remains responsible for releasing
+any external resources it could not clean up.
+
+Removal keeps the endpoint and registry entry intact until adapter detachment succeeds. Failed or
+cancelled detachment can therefore be retried using the same `BridgedDevice`. Successful detachment
+commits removal even if cancellation arrives immediately afterwards. Adapters must tolerate partial
+attachment and repeated cleanup attempts. Lifecycle operations are serialized per aggregator;
+adapter callbacks must not re-enter that aggregator's add/remove methods.
 
 - **Passcode/verifier binding.** Always source the QR passcode from the same `PaseProvisioning` bundle
   that produced the on-device verifier (see [Onboarding](#onboarding-qr-code--passcodeverifier-pairing)).
