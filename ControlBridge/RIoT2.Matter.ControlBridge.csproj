@@ -6,10 +6,11 @@
         <Nullable>enable</Nullable>
         <RootNamespace>RIoT2.Matter.ControlBridge</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <RIoT2MatterPackageVersion Condition="'$(RIoT2MatterPackageVersion)' == ''">0.1.11</RIoT2MatterPackageVersion>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="RIoT2.Matter" Version="0.1.11" />
+      <PackageReference Include="RIoT2.Matter" Version="$(RIoT2MatterPackageVersion)" />
     </ItemGroup>
 
 </Project>
