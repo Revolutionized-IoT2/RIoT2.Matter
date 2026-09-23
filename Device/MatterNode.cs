@@ -1,5 +1,6 @@
 using RIoT2.Matter.Clusters;
 using RIoT2.Matter.DataModel;
+using System.Collections.Concurrent;
 
 namespace RIoT2.Matter.Device;
 
@@ -9,7 +10,7 @@ namespace RIoT2.Matter.Device;
 /// </summary>
 public sealed class MatterNode
 {
-    private readonly Dictionary<EndpointId, Endpoint> _endpoints = new();
+    private readonly ConcurrentDictionary<EndpointId, Endpoint> _endpoints = new();
 
     public MatterNode(TimeProvider? timeProvider = null)
     {
@@ -19,7 +20,7 @@ public sealed class MatterNode
 
         // Every node has a root endpoint (0) hosting node-wide utility clusters.
         Root = new Endpoint(EndpointId.Root) { EventSink = Events, ChangeSink = Changes };
-        _endpoints.Add(Root.Id, Root);
+        _endpoints.TryAdd(Root.Id, Root);
     }
 
     /// <summary>The node-wide event store retaining generated events for reporting.</summary>
@@ -41,14 +42,29 @@ public sealed class MatterNode
     /// subscriptions report the updated PartsList (the mechanism dynamic bridged endpoints rely on).
     /// </remarks>
     public Endpoint AddEndpoint(EndpointId id)
+        => AttachEndpoint(new Endpoint(id));
+
+    /// <summary>
+    /// Publishes a fully composed standalone endpoint and binds its clusters to this node's stores.
+    /// Used to keep asynchronously initialized bridged devices invisible until attachment succeeds.
+    /// </summary>
+    public Endpoint AttachEndpoint(Endpoint endpoint)
     {
-        if (id == EndpointId.Root)
+        ArgumentNullException.ThrowIfNull(endpoint);
+        if (endpoint.Id == EndpointId.Root)
         {
-            throw new ArgumentException("The root endpoint (0) is created with the node and cannot be added.", nameof(id));
+            throw new ArgumentException("The root endpoint (0) is created with the node and cannot be added.", nameof(endpoint));
+        }
+        if (endpoint.EventSink is not null || endpoint.ChangeSink is not null)
+        {
+            throw new ArgumentException("The endpoint is already attached to a node.", nameof(endpoint));
         }
 
-        var endpoint = new Endpoint(id) { EventSink = Events, ChangeSink = Changes };
-        _endpoints.Add(id, endpoint);
+        if (!_endpoints.TryAdd(endpoint.Id, endpoint))
+        {
+            throw new ArgumentException("An endpoint with this id already exists.", nameof(endpoint));
+        }
+        endpoint.BindToNode(Events, Changes);
         NotifyPartsListChanged();
         return endpoint;
     }
@@ -65,7 +81,7 @@ public sealed class MatterNode
             throw new ArgumentException("The root endpoint (0) cannot be removed.", nameof(id));
         }
 
-        if (!_endpoints.Remove(id))
+        if (!_endpoints.TryRemove(id, out _))
         {
             return false;
         }
@@ -79,9 +95,9 @@ public sealed class MatterNode
     // is a no-op.
     private void NotifyPartsListChanged()
     {
-        if (Root.TryGetCluster(DescriptorCluster.ClusterId, out var descriptor) && descriptor is not null)
+        if (Root.TryGetCluster(DescriptorCluster.ClusterId, out var descriptor) && descriptor is DescriptorCluster rootDescriptor)
         {
-            Changes.NotifyClusterChanged(Root.Id, DescriptorCluster.ClusterId, descriptor.DataVersion);
+            rootDescriptor.NotifyPartsListChanged();
         }
     }
 }

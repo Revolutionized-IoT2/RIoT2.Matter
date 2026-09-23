@@ -24,7 +24,7 @@ public sealed class Endpoint
     public IReadOnlyDictionary<ClusterId, Cluster> Clusters => _clusters;
 
     /// <summary>
-    /// The client (outgoing binding) clusters this endpoint declares — the clusters it drives on
+    /// The client (outgoing binding) clusters this endpoint declares ï¿½ the clusters it drives on
     /// <em>other</em> nodes via a Binding. Projected by the Descriptor cluster's ClientList. A cluster
     /// may appear here and in <see cref="Clusters"/> independently (a client and a server instance).
     /// </summary>
@@ -34,13 +34,23 @@ public sealed class Endpoint
     /// The node event store clusters on this endpoint emit into. Set by <see cref="MatterNode"/>
     /// when the endpoint joins a node; null for a standalone endpoint (whose events are no-ops).
     /// </summary>
-    internal IEventSink? EventSink { get; init; }
+    internal IEventSink? EventSink { get; set; }
 
     /// <summary>
     /// The node change broker clusters on this endpoint report data-version changes to. Set by
     /// <see cref="MatterNode"/> when the endpoint joins a node; null for a standalone endpoint.
     /// </summary>
-    internal IClusterChangeSink? ChangeSink { get; init; }
+    internal IClusterChangeSink? ChangeSink { get; set; }
+
+    internal void BindToNode(IEventSink events, IClusterChangeSink changes)
+    {
+        EventSink = events;
+        ChangeSink = changes;
+        foreach (var cluster in _clusters.Values)
+        {
+            cluster.Bind(Id, events, changes);
+        }
+    }
 
     /// <summary>Adds a cluster to this endpoint, binding it to the node's stores when present.</summary>
     public Endpoint AddCluster(Cluster cluster)

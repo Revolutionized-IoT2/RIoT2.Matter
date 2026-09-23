@@ -13,5 +13,6 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <ProjectReference Include="..\Controller\RIoT2.Matter.Controller.csproj" />
+    <ProjectReference Include="..\ControlBridge\RIoT2.Matter.ControlBridge.csproj" />
   </ItemGroup>
 </Project>
