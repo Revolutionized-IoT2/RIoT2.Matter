@@ -61,9 +61,15 @@ public sealed class CommissioningClusterClient : ICommissioningClusterClient
         // Fetch the DAC and PAI so the verifier can validate the chain and the attestation signature.
         var dac = await RequestCertificateChainAsync(CertificateChainType.DeviceAttestation, cancellationToken).ConfigureAwait(false);
         var pai = await RequestCertificateChainAsync(CertificateChainType.ProductAttestationIntermediate, cancellationToken).ConfigureAwait(false);
+        var identity = await _client.ReadAttributesAsync([
+            new AttributePathIB { Endpoint = RootEndpoint, Cluster = new ClusterId(0x0028), Attribute = new AttributeId(2) },
+            new AttributePathIB { Endpoint = RootEndpoint, Cluster = new ClusterId(0x0028), Attribute = new AttributeId(4) },
+        ], cancellationToken).ConfigureAwait(false);
 
         return new AttestationInformation
         {
+            ExpectedVendorId = ReadIdentityAttribute(identity, 2),
+            ExpectedProductId = ReadIdentityAttribute(identity, 4),
             AttestationElements = elements,
             AttestationSignature = signature,
             AttestationNonce = attestationNonce,
@@ -71,6 +77,17 @@ public sealed class CommissioningClusterClient : ICommissioningClusterClient
             DeviceAttestationCertificate = dac,
             ProductAttestationIntermediateCertificate = pai.Length > 0 ? pai : null,
         };
+    }
+
+    private static ushort ReadIdentityAttribute(IReadOnlyList<AttributeReportIB> reports, uint id)
+    {
+        var match = reports.Select(r => r.AttributeData).SingleOrDefault(d => d is { } value &&
+            value.Path.Endpoint == RootEndpoint && value.Path.Cluster == new ClusterId(0x0028) &&
+            value.Path.Attribute == new AttributeId(id));
+        if (match is not { } data) { throw new InteractionModelException("Basic Information VID/PID is missing."); }
+        var reader = new TlvReader(data.Data.Span);
+        if (!reader.Read()) { throw new InteractionModelException("Invalid Basic Information VID/PID."); }
+        return checked((ushort)reader.GetUnsignedInteger());
     }
 
     public async Task<byte[]> RequestCertificateChainAsync(CertificateChainType certificateType, CancellationToken cancellationToken = default)

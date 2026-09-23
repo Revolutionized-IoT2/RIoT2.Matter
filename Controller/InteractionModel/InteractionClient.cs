@@ -56,15 +56,11 @@ public sealed class InteractionClient : IInteractionClient
     {
         ArgumentNullException.ThrowIfNull(values);
 
-        if (timed)
-        {
-            await SendTimedRequestAsync(timedInvokeTimeoutMs, cancellationToken).ConfigureAwait(false);
-        }
-
         var request = new WriteRequestMessage { WriteRequests = values, TimedRequest = timed };
         var transaction = new InteractionTransaction(InteractionModelOpcode.WriteResponse);
         var responsePayload = await transaction
-            .ExecuteAsync(_exchanges, _session, InteractionModelOpcode.WriteRequest, request.ToArray(), cancellationToken)
+            .ExecuteAsync(_exchanges, _session, InteractionModelOpcode.WriteRequest, request.ToArray(), cancellationToken,
+                timed ? timedInvokeTimeoutMs : null)
             .ConfigureAwait(false);
 
         ThrowIfStatusFailure(responsePayload.Span);
@@ -79,11 +75,6 @@ public sealed class InteractionClient : IInteractionClient
     public async Task<InvokeResult> InvokeAsync(
         ClusterCommand command, bool timed = false, ushort timedInvokeTimeoutMs = 0, CancellationToken cancellationToken = default)
     {
-        if (timed)
-        {
-            await SendTimedRequestAsync(timedInvokeTimeoutMs, cancellationToken).ConfigureAwait(false);
-        }
-
         var request = new InvokeRequestMessage
         {
             TimedRequest = timed,
@@ -99,7 +90,8 @@ public sealed class InteractionClient : IInteractionClient
 
         var transaction = new InteractionTransaction(InteractionModelOpcode.InvokeResponse);
         var responsePayload = await transaction
-            .ExecuteAsync(_exchanges, _session, InteractionModelOpcode.InvokeRequest, request.ToArray(), cancellationToken)
+            .ExecuteAsync(_exchanges, _session, InteractionModelOpcode.InvokeRequest, request.ToArray(), cancellationToken,
+                timed ? timedInvokeTimeoutMs : null)
             .ConfigureAwait(false);
 
         ThrowIfStatusFailure(responsePayload.Span);
@@ -179,29 +171,6 @@ public sealed class InteractionClient : IInteractionClient
         {
             // Nothing to clean up: this handler owns no per-exchange state.
         }
-    }
-
-    /// <summary>Announces the timeout window preceding a timed Write/Invoke (spec 8.7.1) on its own exchange.</summary>
-    private async Task SendTimedRequestAsync(ushort timeoutMs, CancellationToken cancellationToken)
-    {
-        var timed = BuildTimedRequest(timeoutMs);
-        var transaction = new InteractionTransaction(InteractionModelOpcode.StatusResponse);
-        var responsePayload = await transaction
-            .ExecuteAsync(_exchanges, _session, InteractionModelOpcode.TimedRequest, timed, cancellationToken)
-            .ConfigureAwait(false);
-        ThrowIfStatusFailure(responsePayload.Span);
-    }
-
-    /// <summary>TimedRequestMessage: a structure with Timeout [0 : uint16] then the IM revision.</summary>
-    private static byte[] BuildTimedRequest(ushort timeoutMs)
-    {
-        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
-        var writer = new TlvWriter(buffer);
-        writer.StartStructure(TlvTag.Anonymous);
-        writer.WriteUnsignedInteger(TlvTag.ContextSpecific(0), timeoutMs);
-        writer.WriteUnsignedInteger(TlvTag.ContextSpecific(InteractionModelMessage.RevisionTag), InteractionModelMessage.Revision);
-        writer.EndContainer();
-        return buffer.WrittenSpan.ToArray();
     }
 
     /// <summary>Throws when the payload is a non-success StatusResponse (a terminal error outcome).</summary>

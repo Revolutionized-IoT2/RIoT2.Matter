@@ -1,4 +1,5 @@
 using RIoT2.Matter.Messaging;
+using RIoT2.Matter.InteractionModel;
 
 namespace RIoT2.Matter.Controller.InteractionModel;
 
@@ -10,8 +11,9 @@ namespace RIoT2.Matter.Controller.InteractionModel;
 internal sealed class InteractionTransaction : IExchangeMessageHandler
 {
     private readonly InteractionModelOpcode _expectedResponse;
-    private readonly TaskCompletionSource<ReadOnlyMemory<byte>> _completion =
+    private TaskCompletionSource<ReadOnlyMemory<byte>> _completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _waitingForTimedStatus;
 
     public InteractionTransaction(InteractionModelOpcode expectedResponse) => _expectedResponse = expectedResponse;
 
@@ -21,14 +23,36 @@ internal sealed class InteractionTransaction : IExchangeMessageHandler
         IMessageSession session,
         InteractionModelOpcode requestOpcode,
         ReadOnlyMemory<byte> request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ushort? timedTimeoutMilliseconds = null)
     {
         var exchange = exchanges.NewExchange(session, MatterProtocolId.InteractionModel, this);
         using (cancellationToken.Register(static state => ((InteractionTransaction)state!)._completion.TrySetCanceled(), this))
         {
-            await exchange.SendAsync((byte)requestOpcode, request, reliable: true, cancellationToken).ConfigureAwait(false);
             try
             {
+                if (timedTimeoutMilliseconds is { } timeout)
+                {
+                    _waitingForTimedStatus = true;
+                    await exchange.SendAsync((byte)InteractionModelOpcode.TimedRequest,
+                        new TimedRequestMessage { TimeoutMilliseconds = timeout }.ToArray(),
+                        reliable: true, cancellationToken).ConfigureAwait(false);
+                    var statusPayload = await _completion.Task.ConfigureAwait(false);
+                    if (!StatusResponseMessage.TryParse(statusPayload.Span, out var status))
+                    {
+                        throw new InteractionModelException("Malformed timed-interaction status.");
+                    }
+                    if (status.Status != InteractionModelStatusCode.Success)
+                    {
+                        throw new InteractionModelException("The peer rejected the timed interaction.", status.Status);
+                    }
+
+                    _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _waitingForTimedStatus = false;
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
+                await exchange.SendAsync((byte)requestOpcode, request, reliable: true, cancellationToken).ConfigureAwait(false);
                 return await _completion.Task.ConfigureAwait(false);
             }
             finally
@@ -42,7 +66,7 @@ internal sealed class InteractionTransaction : IExchangeMessageHandler
     {
         var opcode = (InteractionModelOpcode)message.Protocol.ProtocolOpcode;
 
-        if (opcode == _expectedResponse)
+        if (opcode == (_waitingForTimedStatus ? InteractionModelOpcode.StatusResponse : _expectedResponse))
         {
             _completion.TrySetResult(message.ApplicationPayload.ToArray());
         }

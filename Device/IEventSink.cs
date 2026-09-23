@@ -15,4 +15,12 @@ public interface IEventSink
     /// event number. <paramref name="payload"/> is a standalone TLV element (TlvCopier.Capture form).
     /// </summary>
     ulong Record(EndpointId endpoint, ClusterId cluster, EventId eventId, EventPriority priority, ReadOnlyMemory<byte> payload);
+
+    /// <summary>Records an event with fabric ownership; custom sinks must retain that ownership.</summary>
+    ulong Record(EndpointId endpoint, ClusterId cluster, EventId eventId, EventPriority priority,
+        ReadOnlyMemory<byte> payload, FabricIndex? fabricIndex)
+    {
+        if (fabricIndex is not null) { throw new NotSupportedException("This event sink does not preserve fabric ownership."); }
+        return Record(endpoint, cluster, eventId, priority, payload);
+    }
 }

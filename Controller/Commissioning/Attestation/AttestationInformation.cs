@@ -6,6 +6,11 @@
 /// </summary>
 public sealed record AttestationInformation
 {
+    /// <summary>The VendorID read from Basic Information over the commissioning session.</summary>
+    public ushort? ExpectedVendorId { get; init; }
+
+    /// <summary>The ProductID read from Basic Information over the commissioning session.</summary>
+    public ushort? ExpectedProductId { get; init; }
     /// <summary>The Device Attestation Certificate (DER).</summary>
     public required byte[] DeviceAttestationCertificate { get; init; }
 

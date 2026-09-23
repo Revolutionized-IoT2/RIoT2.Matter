@@ -43,6 +43,18 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
     private readonly TimeProvider _timeProvider;
     private readonly object _gate = new();
     private readonly List<FabricEntry> _fabrics = new();
+    private AccessControlCluster? _accessControl;
+
+    /// <summary>Binds the authorization state that must be persisted with the fabric identity.</summary>
+    public void BindAccessControl(AccessControlCluster accessControl)
+    {
+        ArgumentNullException.ThrowIfNull(accessControl);
+        if (_accessControl is not null) { throw new InvalidOperationException("Access Control is already bound."); }
+        _accessControl = accessControl;
+        accessControl.Changed += OnAccessControlChanged;
+    }
+
+    private void OnAccessControlChanged(object? sender, EventArgs e) => RaiseChanged();
 
     // Fail-safe-scoped staging: a pending trusted root (AddTrustedRootCertificate) and operational key
     // (CSRRequest) awaiting an AddNOC, plus the fabric added since the fail-safe was armed.
@@ -50,6 +62,9 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
     private MatterCertificate? _pendingRootCertificate;
     private EcdsaOperationalKey? _pendingOperationalKey;
     private FabricIndex _uncommittedFabric = FabricIndex.NoFabric;
+    private readonly Dictionary<FabricIndex, PendingNocUpdate> _pendingNocUpdates = new();
+
+    private sealed record PendingNocUpdate(EcdsaOperationalKey Key, byte[] Noc, byte[]? Icac, ulong NodeId);
 
     /// <param name="attestation">The injected DAC/PAI/CD material and DAC signer.</param>
     /// <param name="supportedFabrics">The SupportedFabrics attribute value (spec range 5..254).</param>
@@ -289,7 +304,7 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
                 return NocOperationResult.Fail(NodeOperationalCertStatus.MissingCsr, "No CSRRequest(isForUpdateNOC=true) preceded this UpdateNOC.");
             }
 
-            if (!TryValidateNoc(noc, icac, _pendingRootCertificate ?? entry.RootCertificateParsed, operationalKey, out var nodeId, out var fabricId, out var failure))
+            if (!TryValidateNoc(noc, icac, entry.RootCertificateParsed, operationalKey, out var nodeId, out var fabricId, out var failure))
             {
                 return failure;
             }
@@ -300,7 +315,11 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
                 return NocOperationResult.Fail(NodeOperationalCertStatus.InvalidNoc, "The updated NOC changes the Fabric ID.");
             }
 
-            entry.OperationalKey.Dispose();
+            if (!_pendingNocUpdates.TryAdd(entry.Index,
+                new PendingNocUpdate(entry.OperationalKey, entry.Noc, entry.Icac, entry.NodeId)))
+            {
+                entry.OperationalKey.Dispose();
+            }
             entry.OperationalKey = operationalKey;
             entry.Noc = noc;
             entry.Icac = icac;
@@ -308,9 +327,9 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
 
             _pendingOperationalKey = null;
             ClearPendingRoot();
-            RaiseChanged();
-            return NocOperationResult.Success(entry.Index);
         }
+        RaiseChanged();
+        return NocOperationResult.Success(accessingFabric);
     }
 
     /// <inheritdoc />
@@ -332,9 +351,9 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
             }
 
             entry.Label = label;
-            RaiseChanged();
-            return NocOperationResult.Success(entry.Index);
         }
+        RaiseChanged();
+        return NocOperationResult.Success(accessingFabric);
     }
 
     /// <inheritdoc />
@@ -349,6 +368,10 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
             }
 
             entry.OperationalKey.Dispose();
+            if (_pendingNocUpdates.Remove(fabricIndex, out var update))
+            {
+                update.Key.Dispose();
+            }
             _fabrics.Remove(entry);
             if (_uncommittedFabric == fabricIndex)
             {
@@ -393,6 +416,11 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
     {
         lock (_gate)
         {
+            foreach (var update in _pendingNocUpdates.Values)
+            {
+                update.Key.Dispose();
+            }
+            _pendingNocUpdates.Clear();
             _uncommittedFabric = FabricIndex.NoFabric;
             _pendingOperationalKey?.Dispose();
             _pendingOperationalKey = null;
@@ -409,8 +437,26 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
     public void Rollback()
     {
         var removedFabric = FabricIndex.NoFabric;
+        bool revertedUpdates;
         lock (_gate)
         {
+            revertedUpdates = _pendingNocUpdates.Count > 0;
+            foreach (var (index, update) in _pendingNocUpdates)
+            {
+                if (Find(index) is { } updated)
+                {
+                    updated.OperationalKey.Dispose();
+                    updated.OperationalKey = update.Key;
+                    updated.Noc = update.Noc;
+                    updated.Icac = update.Icac;
+                    updated.NodeId = update.NodeId;
+                }
+                else
+                {
+                    update.Key.Dispose();
+                }
+            }
+            _pendingNocUpdates.Clear();
             if (_uncommittedFabric != FabricIndex.NoFabric && Find(_uncommittedFabric) is { } entry)
             {
                 entry.OperationalKey.Dispose();
@@ -424,9 +470,12 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
             ClearPendingRoot();
         }
 
-        if (removedFabric != FabricIndex.NoFabric)
+        if (removedFabric != FabricIndex.NoFabric || revertedUpdates)
         {
             RaiseChanged();
+        }
+        if (removedFabric != FabricIndex.NoFabric)
+        {
             FabricRemoved?.Invoke(this, new FabricRemovedEventArgs(removedFabric));
         }
     }
@@ -434,6 +483,7 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
     /// <inheritdoc />
     public void Dispose()
     {
+        if (_accessControl is not null) { _accessControl.Changed -= OnAccessControlChanged; }
         lock (_gate)
         {
             foreach (var entry in _fabrics)
@@ -442,6 +492,11 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
             }
 
             _fabrics.Clear();
+            foreach (var update in _pendingNocUpdates.Values)
+            {
+                update.Key.Dispose();
+            }
+            _pendingNocUpdates.Clear();
             _pendingOperationalKey?.Dispose();
             _pendingOperationalKey = null;
         }
@@ -467,19 +522,24 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
                     continue;
                 }
 
+                _pendingNocUpdates.TryGetValue(f.Index, out var committed);
+                var acl = (_accessControl ?? throw new InvalidOperationException(
+                    "Bind Access Control before persisting fabric state.")).ExportFabric(f.Index);
                 result.Add(new FabricSnapshot(
                     (byte)f.Index.Value,
                     f.FabricId,
-                    f.NodeId,
+                    committed?.NodeId ?? f.NodeId,
                     f.RootCertificate,
                     (ushort)f.VendorId.Value,
                     f.Label,
-                    f.Noc,
-                    f.Icac,
-                    f.OperationalKey.ExportEncryptedPrivateKey(keyPassword, pbeParameters),
+                    committed?.Noc ?? f.Noc,
+                    committed is null ? f.Icac : committed.Icac,
+                    (committed?.Key ?? f.OperationalKey).ExportEncryptedPrivateKey(keyPassword, pbeParameters),
                     f.OperationalIpk,
                     f.EpochIpk,
-                    f.CaseAdminSubject));
+                    f.CaseAdminSubject,
+                    acl.Entries,
+                    acl.Extensions));
             }
 
             return result;
@@ -489,13 +549,34 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
     /// <summary>
     /// Rehydrates the fabric table from a persisted snapshot at startup. Must be called before any
     /// commissioning traffic, on an empty table. Re-raises <see cref="FabricAdded"/> for each fabric so
-    /// Access Control and Group Key Management re-seed their fabric-scoped state.
+    /// Group Key Management can restore its IPK. Access Control is restored exactly, without default grants.
     /// </summary>
     /// <param name="snapshots">The persisted fabrics, as produced by <see cref="ExportSnapshot"/>.</param>
     /// <param name="keyPassword">The passphrase used at export time to wrap the operational keys.</param>
     public void ImportSnapshot(IEnumerable<FabricSnapshot> snapshots, ReadOnlySpan<char> keyPassword)
     {
         ArgumentNullException.ThrowIfNull(snapshots);
+        var snapshotList = snapshots.ToArray();
+        if (snapshotList.Length > SupportedFabrics ||
+            snapshotList.Select(s => s.FabricIndex).Distinct().Count() != snapshotList.Length ||
+            snapshotList.Any(s => s.FabricIndex is 0 or 255))
+        {
+            throw new InvalidDataException("Invalid persisted fabric indices.");
+        }
+        if (snapshotList.Length > 0)
+        {
+            var acl = _accessControl ?? throw new InvalidOperationException("Bind Access Control before restoring fabrics.");
+            foreach (var snapshot in snapshotList)
+            {
+                if (snapshot.AccessControlEntries is null || snapshot.AccessControlExtensions is null)
+                {
+                    throw new InvalidDataException(
+                        "Legacy fabric snapshot has no authorization state. Explicit migration or recommissioning is required.");
+                }
+                acl.ValidateSnapshot(new FabricIndex(snapshot.FabricIndex),
+                    snapshot.AccessControlEntries, snapshot.AccessControlExtensions);
+            }
+        }
 
         var restored = new List<FabricEntry>();
         lock (_gate)
@@ -505,41 +586,51 @@ public sealed class OperationalCredentialsManager : IOperationalCredentialsManag
                 throw new InvalidOperationException("ImportSnapshot must run on an empty fabric table before commissioning.");
             }
 
-            foreach (var s in snapshots)
+            try
             {
-                if (!MatterCertificateDecoder.TryDecode(s.RootCertificate, out var root) || root is null)
+                foreach (var s in snapshotList)
                 {
-                    throw new InvalidOperationException($"Persisted fabric {s.FabricIndex} has a malformed trusted root.");
+                    if (!MatterCertificateDecoder.TryDecode(s.RootCertificate, out var root) || root is null)
+                    {
+                        throw new InvalidOperationException($"Persisted fabric {s.FabricIndex} has a malformed trusted root.");
+                    }
+
+                    restored.Add(new FabricEntry
+                    {
+                        Index = new FabricIndex(s.FabricIndex),
+                        FabricId = s.FabricId,
+                        NodeId = s.NodeId,
+                        RootPublicKey = root.EllipticCurvePublicKey,
+                        RootCertificate = s.RootCertificate,
+                        VendorId = new VendorId(s.VendorId),
+                        Label = s.Label,
+                        Noc = s.Noc,
+                        Icac = s.Icac,
+                        OperationalKey = EcdsaOperationalKey.ImportEncrypted(keyPassword, s.OperationalPrivateKey),
+                        OperationalIpk = s.OperationalIpk,
+                        EpochIpk = s.EpochIpk,
+                        CaseAdminSubject = s.CaseAdminSubject,
+                    });
                 }
-
-                var entry = new FabricEntry
-                {
-                    Index = new FabricIndex(s.FabricIndex),
-                    FabricId = s.FabricId,
-                    NodeId = s.NodeId,
-                    RootPublicKey = root.EllipticCurvePublicKey,
-                    RootCertificate = s.RootCertificate,
-                    VendorId = new VendorId(s.VendorId),
-                    Label = s.Label,
-                    Noc = s.Noc,
-                    Icac = s.Icac,
-                    OperationalKey = EcdsaOperationalKey.ImportEncrypted(keyPassword, s.OperationalPrivateKey),
-                    OperationalIpk = s.OperationalIpk,
-                    EpochIpk = s.EpochIpk,
-                    CaseAdminSubject = s.CaseAdminSubject,
-                };
-
-                _fabrics.Add(entry);
-                restored.Add(entry);
             }
+            catch
+            {
+                foreach (var entry in restored) { entry.OperationalKey.Dispose(); }
+                throw;
+            }
+            foreach (var s in snapshotList)
+            {
+                _accessControl!.RestoreFabric(new FabricIndex(s.FabricIndex), s.AccessControlEntries!, s.AccessControlExtensions!);
+            }
+            _fabrics.AddRange(restored);
         }
 
-        // Re-seed ACL + IPK group key set per fabric, outside the lock (mirrors AddNoc). The epoch IPK is
+        // Restore the IPK group key set outside the lock. The epoch IPK is
         // what GroupKeyManager.SeedIpk stores as EpochKey0, so pass EpochIpk (not the derived OperationalIpk).
         foreach (var entry in restored)
         {
             RaiseChanged();
-            FabricAdded?.Invoke(this, new FabricAddedEventArgs(entry.Index, entry.CaseAdminSubject, entry.EpochIpk));
+            FabricAdded?.Invoke(this, new FabricAddedEventArgs(entry.Index, entry.CaseAdminSubject, entry.EpochIpk, isRestore: true));
         }
     }
 

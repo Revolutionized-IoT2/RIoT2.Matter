@@ -17,6 +17,8 @@ public sealed class UdpMessageTransport : IMessageTransport
     private readonly UdpMessageEndpoint _endpoint;
     private readonly IPEndPoint _peer;
 
+    public object PeerIdentity => new IPEndPoint(_peer.Address.MapToIPv6(), _peer.Port);
+
     public UdpMessageTransport(UdpMessageEndpoint endpoint, IPEndPoint peer)
     {
         _endpoint = endpoint ?? throw new ArgumentNullException(nameof(endpoint));

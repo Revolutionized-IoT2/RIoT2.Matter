@@ -23,3 +23,7 @@
 /OnOffSample/obj
 /bin/Release/net9.0
 /ControlBridge/bin/Release/net9.0
+/Controller/bin/Release/
+/Tests/bin/
+/Tests/obj/
+/artifacts/

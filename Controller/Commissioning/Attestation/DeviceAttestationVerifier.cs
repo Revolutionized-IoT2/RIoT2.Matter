@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 using RIoT2.Matter.Credentials;
 using RIoT2.Matter.Tlv;
 
@@ -14,29 +15,74 @@ namespace RIoT2.Matter.Controller.Commissioning.Attestation;
 public sealed class DeviceAttestationVerifier : IDeviceAttestationVerifier
 {
     private readonly IReadOnlyCollection<byte[]> _trustedPaaCertificates;
+    private readonly IReadOnlyCollection<byte[]> _trustedCdSigners;
 
     /// <param name="trustedPaaCertificates">The DER PAA certificates the DAC/PAI chain must anchor to.</param>
-    public DeviceAttestationVerifier(IReadOnlyCollection<byte[]> trustedPaaCertificates)
-        => _trustedPaaCertificates = trustedPaaCertificates ?? throw new ArgumentNullException(nameof(trustedPaaCertificates));
+    public DeviceAttestationVerifier(IReadOnlyCollection<byte[]> trustedPaaCertificates,
+        IReadOnlyCollection<byte[]> trustedCertificationDeclarationSigners)
+    {
+        ArgumentNullException.ThrowIfNull(trustedPaaCertificates);
+        ArgumentNullException.ThrowIfNull(trustedCertificationDeclarationSigners);
+        _trustedPaaCertificates = trustedPaaCertificates.Select(c => c.ToArray()).ToArray();
+        _trustedCdSigners = trustedCertificationDeclarationSigners.Select(c => c.ToArray()).ToArray();
+    }
 
     public AttestationVerificationResult Verify(AttestationInformation attestation)
     {
         ArgumentNullException.ThrowIfNull(attestation);
-
-        // TODO (attestation chain): parse the X.509 DAC/PAI/PAA, verify DAC←PAI←PAA signatures and the
-        // vendor/product-id constraints, and validate the Certification Declaration (CMS/CD). Anchoring
-        // to _trustedPaaCertificates is enforced here once that parsing is in place.
-        if (!VerifyAttestationSignature(attestation))
+        if (_trustedPaaCertificates.Count == 0 || _trustedCdSigners.Count == 0)
         {
-            return AttestationVerificationResult.Fail("The attestation signature did not verify against the DAC public key.");
+            return AttestationVerificationResult.Fail(
+                "Configure both trusted PAA certificates and trusted Certification Declaration signer certificates before commissioning.");
         }
 
-        if (!NonceEchoed(attestation.AttestationElements, attestation.AttestationNonce))
+        try
         {
-            return AttestationVerificationResult.Fail("The attestation nonce was not echoed in the signed elements.");
-        }
+            if (attestation.ExpectedVendorId is not { } vendor || attestation.ExpectedProductId is not { } product ||
+                attestation.AttestationNonce.Length != 32 || attestation.AttestationChallenge.Length != 16 ||
+                attestation.ProductAttestationIntermediateCertificate is not { Length: > 0 } pai ||
+                !VerifyAttestationSignature(attestation))
+            {
+                return AttestationVerificationResult.Fail("Missing identity/chain material or invalid attestation signature.");
+            }
 
-        return AttestationVerificationResult.Success;
+            var elements = AttestationTlv.Structure(attestation.AttestationElements);
+            if (!AttestationTlv.Bytes(elements, 2).AsSpan().SequenceEqual(attestation.AttestationNonce) ||
+                AttestationTlv.UInt(elements, 3) > uint.MaxValue)
+            {
+                return AttestationVerificationResult.Fail("Invalid attestation nonce or timestamp.");
+            }
+            var cd = CertificationDeclarationVerifier.Verify(AttestationTlv.Bytes(elements, 1), _trustedCdSigners);
+            if (AttestationTlv.UInt(cd, 1) != vendor || !CertificationDeclarationVerifier.ContainsProduct(cd, product))
+            {
+                return AttestationVerificationResult.Fail("Certification Declaration does not cover the device VID/PID.");
+            }
+
+            using var dac = X509CertificateLoader.LoadCertificate(attestation.DeviceAttestationCertificate);
+            var originVendor = cd.ContainsKey(9) ? checked((ushort)AttestationTlv.UInt(cd, 9)) : vendor;
+            var originProduct = cd.ContainsKey(10) ? checked((ushort)AttestationTlv.UInt(cd, 10)) : product;
+            if (cd.ContainsKey(9) != cd.ContainsKey(10) ||
+                AttestationCertificateChainVerifier.ReadDnInteger(dac.SubjectName, AttestationCertificateChainVerifier.VendorIdOid) != originVendor ||
+                AttestationCertificateChainVerifier.ReadDnInteger(dac.SubjectName, AttestationCertificateChainVerifier.ProductIdOid) != originProduct)
+            {
+                return AttestationVerificationResult.Fail("DAC VID/PID does not match the Certification Declaration.");
+            }
+            foreach (var root in _trustedPaaCertificates)
+            {
+                using var paa = X509CertificateLoader.LoadCertificate(root);
+                if (CertificationDeclarationVerifier.AllowsPaa(cd, paa) &&
+                    new AttestationCertificateChainVerifier([root]).Verify(attestation.DeviceAttestationCertificate, pai).IsSuccess)
+                {
+                    return AttestationVerificationResult.Success;
+                }
+            }
+            return AttestationVerificationResult.Fail("The DAC/PAI chain is not anchored in an authorized trusted PAA.");
+        }
+        catch (Exception ex) when (ex is CryptographicException or InvalidDataException or InvalidOperationException
+            or ArgumentException or OverflowException or FormatException or NotSupportedException)
+        {
+            return AttestationVerificationResult.Fail("Malformed or untrusted attestation material.");
+        }
     }
 
     private static bool VerifyAttestationSignature(AttestationInformation attestation)
@@ -66,21 +112,4 @@ public sealed class DeviceAttestationVerifier : IDeviceAttestationVerifier
         }
     }
 
-    /// <summary>Confirms the elements TLV carries the expected attestation_nonce (context tag 2).</summary>
-    private static bool NonceEchoed(byte[] elements, byte[] expectedNonce)
-    {
-        var reader = new TlvReader(elements);
-        var depth = 0;
-        while (reader.Read())
-        {
-            if (reader.IsContainer) { depth++; continue; }
-            if (reader.IsEndOfContainer) { depth--; continue; }
-            if (depth == 1 && reader.Tag.TagNumber == 2)
-            {
-                return reader.GetByteString().SequenceEqual(expectedNonce);
-            }
-        }
-
-        return false;
-    }
 }

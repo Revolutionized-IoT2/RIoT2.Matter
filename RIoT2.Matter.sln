@@ -5,6 +5,10 @@ VisualStudioVersion = 17.14.37314.3 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RIoT2.Matter", "RIoT2.Matter.csproj", "{F37FE367-BD7B-4FD5-99F7-B30F03E72E45}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RIoT2.Matter.Tests", "Tests\RIoT2.Matter.Tests.csproj", "{D530D226-E7E1-4CC4-BA97-C4ADB1C87111}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RIoT2.Matter.Controller", "Controller\RIoT2.Matter.Controller.csproj", "{CD171D13-D34B-4759-A735-A60BE4353529}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +19,14 @@ Global
 		{F37FE367-BD7B-4FD5-99F7-B30F03E72E45}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F37FE367-BD7B-4FD5-99F7-B30F03E72E45}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F37FE367-BD7B-4FD5-99F7-B30F03E72E45}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D530D226-E7E1-4CC4-BA97-C4ADB1C87111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D530D226-E7E1-4CC4-BA97-C4ADB1C87111}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D530D226-E7E1-4CC4-BA97-C4ADB1C87111}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D530D226-E7E1-4CC4-BA97-C4ADB1C87111}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CD171D13-D34B-4759-A735-A60BE4353529}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CD171D13-D34B-4759-A735-A60BE4353529}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CD171D13-D34B-4759-A735-A60BE4353529}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CD171D13-D34B-4759-A735-A60BE4353529}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

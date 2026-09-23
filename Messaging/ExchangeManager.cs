@@ -38,7 +38,7 @@ public sealed class ExchangeManager : IDisposable
 
         var exchangeId = (ushort)(Interlocked.Increment(ref _nextExchangeId) & 0xFFFF);
         var exchange = new ExchangeContext(this, session, exchangeId, protocolId, ExchangeRole.Initiator, handler);
-        _exchanges[new ExchangeKey(session.SessionId, exchangeId, ExchangeRole.Initiator)] = exchange;
+        _exchanges[new ExchangeKey(session.ExchangeIdentity, exchangeId, ExchangeRole.Initiator)] = exchange;
         return exchange;
     }
 
@@ -53,7 +53,7 @@ public sealed class ExchangeManager : IDisposable
 
         // The peer's I flag identifies the sender's role; ours is the opposite for that exchange.
         var localRole = message.Protocol.IsInitiator ? ExchangeRole.Responder : ExchangeRole.Initiator;
-        var key = new ExchangeKey(session.SessionId, message.Protocol.ExchangeId, localRole);
+        var key = new ExchangeKey(session.ExchangeIdentity, message.Protocol.ExchangeId, localRole);
 
         if (!_exchanges.TryGetValue(key, out var exchange))
         {
@@ -92,7 +92,7 @@ public sealed class ExchangeManager : IDisposable
         ArgumentNullException.ThrowIfNull(message);
 
         var localRole = message.Protocol.IsInitiator ? ExchangeRole.Responder : ExchangeRole.Initiator;
-        var key = new ExchangeKey(session.SessionId, message.Protocol.ExchangeId, localRole);
+        var key = new ExchangeKey(session.ExchangeIdentity, message.Protocol.ExchangeId, localRole);
 
         if (_exchanges.TryGetValue(key, out var exchange))
         {
@@ -102,9 +102,9 @@ public sealed class ExchangeManager : IDisposable
 
     /// <summary>Removes a closed exchange from the active set. Called by <see cref="ExchangeContext.Close"/>.</summary>
     internal void Release(ExchangeContext exchange)
-        => _exchanges.TryRemove(new ExchangeKey(exchange.Session.SessionId, exchange.ExchangeId, exchange.Role), out _);
+        => _exchanges.TryRemove(new ExchangeKey(exchange.Session.ExchangeIdentity, exchange.ExchangeId, exchange.Role), out _);
 
     public void Dispose() => ReliableMessageManager.Dispose();
 
-    private readonly record struct ExchangeKey(ushort SessionId, ushort ExchangeId, ExchangeRole Role);
+    private readonly record struct ExchangeKey(object SessionIdentity, ushort ExchangeId, ExchangeRole Role);
 }

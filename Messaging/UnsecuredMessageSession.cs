@@ -21,7 +21,7 @@ public sealed class UnsecuredMessageSession : IMessageSession
     /// header. On the responder side this MUST be the Source Node ID from the request that opened the
     /// exchange: an unsecured initiator that sets a Source Node ID (DSIZ) will only accept replies
     /// addressed back to it, so omitting the destination makes the peer discard our responses and acks
-    /// and retransmit forever (spec §4.4).
+    /// and retransmit forever (spec ï¿½4.4).
     /// </param>
     /// <param name="counter">The node-global unsecured message counter; a random one is created if omitted.</param>
     public UnsecuredMessageSession(
@@ -41,6 +41,8 @@ public sealed class UnsecuredMessageSession : IMessageSession
     /// <inheritdoc />
     public ushort SessionId => SessionManager.UnsecuredSessionId;
 
+    public object ExchangeIdentity => _transport.PeerIdentity;
+
     /// <inheritdoc />
     public ReliableMessageProtocolConfig RemoteMrpConfig { get; }
 
@@ -58,7 +60,7 @@ public sealed class UnsecuredMessageSession : IMessageSession
     /// node ids), whereas a later CASE Sigma1 addresses us by our operational Node ID and carries the
     /// initiator's Source Node ID; without refreshing, Sigma2 would be sent with the stale (absent)
     /// Source/Destination Node IDs, so the controller cannot correlate it to its pending handshake,
-    /// acks it at the MRP layer, and restarts Sigma1 forever (spec §4.4). Only non-null values overwrite
+    /// acks it at the MRP layer, and restarts Sigma1 forever (spec ï¿½4.4). Only non-null values overwrite
     /// existing addressing, so an anonymous retransmission never clears an address already learned.
     /// </summary>
     public void RefreshAddressing(NodeId? localNodeId, NodeId? peerNodeId)

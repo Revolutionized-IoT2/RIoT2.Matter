@@ -3,7 +3,7 @@ namespace RIoT2.Matter.Clusters;
 /// <summary>
 /// A persistable projection of one committed fabric: everything needed to rebuild a fabric entry and
 /// re-authenticate CASE after a restart, including the operational private key (PKCS#8) and IPK
-/// material. Treat instances as secrets — encrypt at rest.
+/// material. Treat instances as secrets ï¿½ encrypt at rest.
 /// </summary>
 /// <param name="FabricIndex">The 1-based fabric index.</param>
 /// <param name="FabricId">The fabric identifier.</param>
@@ -29,4 +29,6 @@ public sealed record FabricSnapshot(
     byte[] OperationalPrivateKey,
     byte[] OperationalIpk,
     byte[] EpochIpk,
-    ulong CaseAdminSubject);
+    ulong CaseAdminSubject,
+    IReadOnlyList<AccessControlEntry>? AccessControlEntries = null,
+    IReadOnlyList<AccessControlExtension>? AccessControlExtensions = null);

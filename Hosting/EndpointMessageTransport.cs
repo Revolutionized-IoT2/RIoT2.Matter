@@ -14,6 +14,8 @@ public sealed class EndpointMessageTransport : IMessageTransport
     private readonly IMatterTransport _transport;
     private readonly IPEndPoint _destination;
 
+    public object PeerIdentity => new IPEndPoint(_destination.Address.MapToIPv6(), _destination.Port);
+
     /// <summary>Creates a sink that transmits every frame to <paramref name="destination"/>.</summary>
     public EndpointMessageTransport(IMatterTransport transport, IPEndPoint destination)
     {

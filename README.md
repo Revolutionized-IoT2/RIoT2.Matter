@@ -58,6 +58,11 @@ dotnet build
 dotnet test
 ```
 
+The solution includes `Tests\RIoT2.Matter.Tests.csproj`, an offline xUnit suite covering
+attestation trust, event authorization, timed exchanges, unsecured peer isolation, and
+credential/ACL rollback and persistence. Tests create only ephemeral in-memory keys and
+short-lived encrypted state beneath their build output; no device or network service is required.
+
 Add a reference to the library from your host application:
 
 ```xml
@@ -487,6 +492,60 @@ Known gaps / deferred (contributions welcome):
 ---
 
 ## Security notes
+
+- **Controller attestation trust.** Configure both `MatterControllerOptions.TrustedPaaCertificates`
+  and `TrustedCertificationDeclarationSigners` with explicitly trusted DER certificates. There is
+  no implicit test/development trust. The controller reads Basic Information VID/PID over PASE,
+  validates DAC → PAI → trusted PAA, verifies the CD signature and product list (including DAC-origin
+  IDs and authorized PAA restrictions when present), and checks the signed nonce/challenge.
+  Empty trust stores, missing identity fields, and malformed or duplicate attestation fields fail closed.
+- **Durable authorization.** Fabric snapshots now include the current ACL and Extension entries.
+  `CommissioningSupport` binds this state automatically; applications constructing an
+  `OperationalCredentialsManager` directly must call `BindAccessControl` before persistence.
+  **Legacy snapshots without ACL data are rejected:** they cannot safely reconstruct revoked grants.
+  Keep a protected backup and recommission; no automatic migration is performed.
+  Do not recover by silently recreating the original administrator. ACL mutations trigger persistence,
+  and restoring an explicitly empty ACL does not grant any default access.
+- **Fail-safe credential rotation.** UpdateNOC keeps the previous identity until CommissioningComplete.
+  A snapshot taken during rotation contains the committed identity; fail-safe expiry restores it.
+- **Event access.** Event reads and every subscription report recheck privileges. Fabric-owned events
+  remain visible only to their owning fabric, even for an unfiltered request. Event reads without an
+  access resolver fail closed. Custom event sinks must retain the fabric metadata supplied to the
+  new `IEventSink.Record` overload.
+- **Unsecured peer identity.** Custom `IMessageTransport` wrappers recreated per datagram must expose a
+  stable `PeerIdentity` for the remote endpoint, including its port. Built-in UDP transports normalize
+  IPv4/mapped-IPv6 addresses and retain peer-isolated replay and exchange state.
+
+### Controller trust configuration and 0.1.13 recovery
+
+The executable controller binds the `MatterController` configuration section. Both
+`TrustedPaaCertificates` and `TrustedCertificationDeclarationSigners` are arrays of base64-encoded
+DER certificates. Missing collections produce explicit options-validation failures at startup;
+there are no embedded or fallback trust anchors. Hosts configuring services directly can load
+their explicitly chosen public trust material:
+
+```csharp
+services.AddMatterController(options =>
+{
+    options.TrustedPaaCertificates.Add(File.ReadAllBytes(paaCertificateDerPath));
+    options.TrustedCertificationDeclarationSigners.Add(File.ReadAllBytes(cdSignerCertificateDerPath));
+});
+```
+
+Direct `DeviceAttestationVerifier` construction likewise requires both collections. A trusted test
+PAA alone does not authorize test Certification Declarations: their signer must also be selected
+explicitly. These trust certificates are public material; do not supply private-key files.
+
+For a legacy device fabric snapshot without ACL state, startup fails before persistence subscribes
+to changes, leaving the original file untouched. Stop the host, keep a protected backup, and move the
+legacy snapshot aside **only as part of an explicit recommissioning operation**. Remove the obsolete
+device identity from its controllers and commission the device again. Do not delete the snapshot
+automatically, catch the error and continue with a fresh identity, or reuse its original administrator
+as a guessed ACL.
+
+The six protocol fixes are packaged in **RIoT2.Matter 0.1.13**; **RIoT2.Matter.ControlBridge 0.1.13**
+depends on that version. Consumers must update their package references and restore/rebuild; a source
+checkout alone does not update applications still referencing 0.1.12 or earlier.
 
 - **Passcode/verifier binding.** Always source the QR passcode from the same `PaseProvisioning` bundle
   that produced the on-device verifier (see [Onboarding](#onboarding-qr-code--passcodeverifier-pairing)).
