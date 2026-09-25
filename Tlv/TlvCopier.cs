@@ -6,12 +6,18 @@ namespace RIoT2.Matter.Tlv;
 /// <summary>
 /// Copies, skips, and captures whole TLV elements (including nested containers) using only the
 /// public <see cref="TlvReader"/>/<see cref="TlvWriter"/> surface. Used to relay opaque,
-/// polymorphic values — Interaction Model attribute data, command fields, and event data — without
+/// polymorphic values ï¿½ Interaction Model attribute data, command fields, and event data ï¿½ without
 /// interpreting their type. Integer and string widths are re-minimized by the writer, which
 /// preserves value semantics.
 /// </summary>
 public static class TlvCopier
 {
+    /// <summary>
+    /// Maximum container nesting accepted when copying or skipping opaque TLV values. This keeps
+    /// malformed input from driving unbounded recursion or an excessively large skip stack.
+    /// </summary>
+    public const int MaxNestingDepth = 32;
+
     /// <summary>
     /// Copies the element the <paramref name="reader"/> is positioned on into <paramref name="writer"/>,
     /// replacing the top-level tag with <paramref name="tag"/> and preserving inner tags. On return the
@@ -21,12 +27,34 @@ public static class TlvCopier
     {
         ArgumentNullException.ThrowIfNull(writer);
 
+        CopyElement(ref reader, writer, tag, depth: 0);
+    }
+
+    private static void CopyElement(ref TlvReader reader, TlvWriter writer, TlvTag tag, int depth)
+    {
         if (reader.IsContainer)
         {
-            StartContainer(writer, reader.Type, tag);
-            while (reader.Read() && !reader.IsEndOfContainer)
+            if (depth >= MaxNestingDepth)
             {
-                CopyElement(ref reader, writer, reader.Tag);
+                throw new InvalidDataException($"TLV container nesting exceeds the supported depth of {MaxNestingDepth}.");
+            }
+
+            StartContainer(writer, reader.Type, tag);
+            var closed = false;
+            while (reader.Read())
+            {
+                if (reader.IsEndOfContainer)
+                {
+                    closed = true;
+                    break;
+                }
+
+                CopyElement(ref reader, writer, reader.Tag, depth + 1);
+            }
+
+            if (!closed)
+            {
+                throw new InvalidDataException("Unexpected end of TLV data while copying a container.");
             }
 
             writer.EndContainer();
@@ -50,8 +78,20 @@ public static class TlvCopier
         var depth = 1;
         while (depth > 0 && reader.Read())
         {
-            if (reader.IsContainer) { depth++; }
+            if (reader.IsContainer)
+            {
+                depth++;
+                if (depth > MaxNestingDepth)
+                {
+                    throw new InvalidDataException($"TLV container nesting exceeds the supported depth of {MaxNestingDepth}.");
+                }
+            }
             else if (reader.IsEndOfContainer) { depth--; }
+        }
+
+        if (depth != 0)
+        {
+            throw new InvalidDataException("Unexpected end of TLV data while skipping a container.");
         }
     }
 
