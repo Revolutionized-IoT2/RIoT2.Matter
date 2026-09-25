@@ -8,7 +8,7 @@ other Matter nodes it is bound to (sending commands *out*), while the Aggregator
 discover and control your non-Matter devices as if they were native (receiving commands *in*). It
 composes and hosts the device, generates the **onboarding QR code and manual pairing code** a
 commissioner scans, and manages both bound targets and bridged devices. Built on
-[`RIoT2.Matter`](../RIoT2.Matter/README.md) for **.NET 9**.
+[`RIoT2.Matter`](../README.md) for **.NET 9**.
 
 **At a glance**
 
@@ -66,7 +66,7 @@ is set. When it is left unset, the service is a pure Control Bridge and behaves 
   omit common `using` directives and assume a nullable-aware context.
 - An **IPv6-capable** network interface. Matter is IPv6-centric; the operational UDP port is **5540**.
 - Device **attestation credentials** (DAC/PAI/CD + DAC signer). See
-  [`DeviceAttestationCredentials`](../RIoT2.Matter/README.md) for how to supply them.
+  [`DeviceAttestationCredentials`](../README.md) for how to supply them.
 
 ## Install
 
@@ -158,6 +158,12 @@ Console.WriteLine($"Passcode    : {service.Onboarding.Passcode}");
 `ControlBridgeService` implements `IAsyncDisposable`; the `await using` above closes the bridge's
 sessions, disposes the host (sending a DNS-SD goodbye), and unhooks the fabric-lifecycle handlers in
 the correct order.
+
+> **Persistence note:** `ControlBridgeService` composes an in-memory fabric table. A production host
+> should restore/persist `service.Device.Commissioning.Manager` with `FileFabricPersistence` (using a
+> device-bound protection secret) before exposing the bridge long-term; otherwise commissioned fabrics
+> and bindings are lost on restart and controllers must recommission the bridge. Supplying
+> `settings.Provisioning` pins only the setup passcode/verifier, not commissioned fabric credentials.
 
 ## Onboarding: QR code & manual pairing code
 
@@ -310,9 +316,10 @@ can add either or both to a fabric.
 
 ## Resolving operational peers
 
-To open a CASE session the library needs each peer's operational IP endpoint. Because DNS-SD operational
-discovery is not yet wired, supply an `IOperationalPeerResolver` — a static map today, or a real resolver
-later — via the resolver overload of `Create`:
+To open a CASE session the library needs each peer's operational IP endpoint. The core library has
+DNS-SD discovery primitives, but ControlBridge does not yet resolve bindings automatically. Supply an
+`IOperationalPeerResolver` — a static map today, or a resolver backed by operational discovery — via
+the resolver overload of `Create`:
 
 ```csharp
 using System.Net;

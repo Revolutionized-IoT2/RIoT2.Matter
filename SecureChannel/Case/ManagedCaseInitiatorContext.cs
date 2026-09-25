@@ -148,6 +148,11 @@ internal sealed class ManagedCaseInitiatorContext : ICaseInitiatorContext
 
     private byte[] DeriveEcdh(byte[] peerPublic65)
     {
+        if (peerPublic65.Length != PublicKeyLength || peerPublic65[0] != 0x04)
+        {
+            throw new CryptographicException("CASE peer ephemeral public key must be a 65-byte uncompressed P-256 point.");
+        }
+
         var peerParameters = new ECParameters
         {
             Curve = ECCurve.NamedCurves.nistP256,

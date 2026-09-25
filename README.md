@@ -496,10 +496,10 @@ Implemented and interoperable per the Matter Core Specification:
 
 - ✅ TLV encode/decode primitives.
 - ✅ IPv6/UDP transport + exchange/message layer with **MRP**, secure session manager (counters,
-  replay protection, AES-CCM AEAD, privacy `P`-flag).
+  replay protection, AES-CCM AEAD, privacy `P`-flag). Receive loops isolate handler faults so one
+  bad datagram consumer does not stop the UDP listener.
 - ✅ Secure Channel: **PASE** (commissioning) then **CASE** (operational), installing operational
-  sessions, with **CASE session resumption** (Sigma2_Resume) to re-establish sessions without a full
-  Sigma1/2/3 handshake.
+  sessions via the full Sigma1/2/3 handshake.
 - ✅ **DNS-SD/mDNS** advertising & discovery (operational `_matter._tcp`, commissionable `_matterc._udp`).
 - ✅ **Interaction Model**: Read / Write / Invoke / Subscribe, timed interactions, report chunking,
   event generation, element-wise list writes.
@@ -516,10 +516,13 @@ Implemented and interoperable per the Matter Core Specification:
 Known gaps / deferred (contributions welcome):
 
 - ⏳ **Group-cast** message security path end to end.
+- ⏳ **CASE session resumption** (Sigma2_Resume). The store and key schedule scaffolding exist, but
+  the responder currently declines resumption and falls back to a full Sigma1/2/3 handshake.
 - ⏳ **BLE/BTP** transport (only IPv6/UDP is provided).
 - ⏳ MRP **standalone acknowledgements** in all paths.
 - ⏳ Wi-Fi/Thread Network Commissioning Scan/Add/Connect commands (Ethernet feature only).
-- ⏳ Manual pairing-code encoding (QR onboarding is available).
+- ⏳ A shared core manual-pairing encoder/parser API. ControlBridge and OnOffSample emit standard
+  11-digit manual codes, and the Controller parses 11/21-digit manual codes.
 - ⏳ Color Control XY, enhanced hue and colour loop; Thermostat unoccupied setpoints, weekly schedules
   and setback.
 
@@ -549,6 +552,8 @@ Known gaps / deferred (contributions welcome):
 - **Unsecured peer identity.** Custom `IMessageTransport` wrappers recreated per datagram must expose a
   stable `PeerIdentity` for the remote endpoint, including its port. Built-in UDP transports normalize
   IPv4/mapped-IPv6 addresses and retain peer-isolated replay and exchange state.
+- **TLV hardening.** Opaque TLV copy/skip paths reject unterminated containers and cap nesting depth at
+  `TlvCopier.MaxNestingDepth` to avoid accepting malformed payloads or exhausting the stack.
 
 ### Controller trust configuration and 0.1.13 recovery
 

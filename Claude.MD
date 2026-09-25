@@ -35,8 +35,8 @@
   - **Discovery & validation**
     - [x] Discovery / browse resolver (controller role): PTR browse → SRV/AAAA/TXT resolution → discovered-node surface. _(optional / deferred; reuses the codec + `IMdnsInterface` + record model.)_
     - [x] Commissioner advertising `_matterd._udp` + User-Directed Commissioning. _(optional / deferred.)_
-    - [x] Interop validation: golden DNS KATs + browse/commission against chip-tool / Apple Home / Google Home.
-- [x] Secure Channel: PASE (commissioning) then CASE (operational). _(PASE and CASE handshakes complete and now install operational sessions. Pending: CASE session resumption.)_
+    - [ ] Interop validation: golden DNS KATs + browse/commission against chip-tool / Apple Home / Google Home.
+- [x] Secure Channel: PASE (commissioning) then CASE (operational). _(PASE and CASE full handshakes install operational sessions. CASE session resumption scaffolding exists, but the responder currently declines Sigma2_Resume and falls back to a full handshake.)_
 - [x] Interaction Model: Read / Write / Invoke / Subscribe.
   - [x] IM protocol framing: opcode enum + `StatusIB`/status codes + `IExchangeMessageHandler` demuxer.
   - [x] IM TLV building blocks: attribute/command/event `PathIB`/`DataIB`/`StatusIB`/`ReportIB` + filters.
@@ -53,7 +53,7 @@
     - [x] Attribute change notifications: node-wide `AttributeChangeBroker` → push-based subscriptions.
     - [x] Element-wise list writes: tri-state `ListIndex` + `Cluster.WriteListItemAsync` (append/replace).
     - [x] Oversized single-entry read chunking: `AttributeListSplitter` (whole-list clear + per-element appends).
-  - [ ] Core clusters (Basic Information, On/Off, Level Control, Descriptor, etc.). _(Cluster/Endpoint/MatterNode scaffolding in place; concrete clusters broken out below.)_
+  - [x] Core clusters (Basic Information, On/Off, Level Control, Descriptor, commissioning support, diagnostics, sensors, Color Control, Thermostat). _(Remaining feature gaps are broken out below.)_
     - **Authoring foundation (cluster-agnostic)**
       - [x] Typed attribute store: reusable backing for cluster attributes — typed get/set, TLV-encode on read, decode + constraint-check on write, automatic `IncrementDataVersion`; collapses the per-cluster `ReadAttributeCoreAsync`/`WriteAttributeCoreAsync`/`WriteListItemCoreAsync` boilerplate.
       - [x] Command codec helpers: typed request-struct decode + response-struct encode over `TlvReader`/`TlvWriter` → `CommandResponse`, with field-presence/constraint validation, feeding `InvokeCommandCoreAsync`.

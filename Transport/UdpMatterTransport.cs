@@ -190,7 +190,14 @@ public sealed class UdpMatterTransport : IMatterTransport
 
             // Copy so each raised datagram owns its payload independent of the reused buffer.
             var payload = buffer.AsSpan(0, result.ReceivedBytes).ToArray();
-            DatagramReceived?.Invoke(this, new MatterDatagram(payload, (IPEndPoint)result.RemoteEndPoint));
+            try
+            {
+                DatagramReceived?.Invoke(this, new MatterDatagram(payload, (IPEndPoint)result.RemoteEndPoint));
+            }
+            catch (Exception ex)
+            {
+                MatterTrace.WriteError(() => $"[UdpMatterTransport] datagram handler faulted; receive loop continuing: {ex}");
+            }
         }
     }
 
