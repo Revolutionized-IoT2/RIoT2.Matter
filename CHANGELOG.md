@@ -6,6 +6,14 @@ GitHub Packages.
 
 ## [Unreleased]
 
+- Changed the core library, ControlBridge, Controller, OnOffSample and tests to `net10.0`; package
+  version is now 0.1.15.
+- Updated `System.Security.Cryptography.Pkcs` and `Microsoft.AspNetCore.OpenApi` to 10.0.12 while
+  keeping xUnit on 2.x.
+- Added a justified CA5350 suppression for the SHA-1 subject key identifier used by
+  `Controller/Credentials/FabricCertificateAuthority.cs`.
+- Kept ControlBridge package-mode builds on `-p:RIoT2MatterPackageVersion=<version>` through
+  conditional central package management.
 - Documentation: `AGENTS.md` is the AI instruction file, `CLAUDE.md` imports it, and version notes
   moved from the README to this file.
 

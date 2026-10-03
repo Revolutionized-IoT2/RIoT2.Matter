@@ -1,6 +1,6 @@
 # RIoT2.Matter.OnOffSample
 
-Runnable console sample for the `RIoT2.Matter` stack. It hosts a Matter dimmable light on .NET 9,
+Runnable console sample for the `RIoT2.Matter` stack. It hosts a Matter dimmable light on .NET 10,
 prints an onboarding QR/manual code and lets the operator control On/Off and brightness from the
 keyboard while commissioned controllers observe the same state.
 
@@ -9,7 +9,7 @@ Despite the historical project name, the current sample uses `LightingProfile.Di
 
 ## Requirements
 
-- .NET 9 SDK
+- .NET 10 SDK
 - IPv6-capable local network interface
 - A terminal that can display the console QR output
 

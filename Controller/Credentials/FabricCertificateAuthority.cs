@@ -215,6 +215,8 @@ public sealed class FabricCertificateAuthority : IFabricCertificateAuthority, ID
     }
 
     /// <summary>SHA-1 of the raw public key bytes, the conventional subject/authority key identifier.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5350:Do Not Use Weak Cryptographic Algorithms",
+        Justification = "RFC 5280 4.2.1.2 method 1 and the Matter certificate format define the 160-bit key identifier as SHA-1; it is an identifier, not a signature or integrity check.")]
     private static byte[] SubjectKeyIdentifier(byte[] publicKey) => SHA1.HashData(publicKey);
 
     private static byte[] NewSerialNumber()

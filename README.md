@@ -1,13 +1,13 @@
 # RIoT2.Matter
 
-Portable, managed Matter protocol implementation for .NET 9. The repository contains the core
+Portable, managed Matter protocol implementation for .NET 10. The repository contains the core
 Matter stack, a controller backend with a Vue UI, the ControlBridge library that lets
 RIoT2.Orchestrator expose RIoT2 devices as Matter bridged endpoints, a runnable sample, and offline
 tests.
 
 - Core package: `RIoT2.Matter`
 - Bridge package: `RIoT2.Matter.ControlBridge`
-- Target framework: `net9.0`
+- Target framework: `net10.0`
 - Default operational Matter port: UDP `5540`
 - Design goals: spec-driven wire compatibility, interoperability with real controllers, no native
   dependencies, and portability across x64 and ARM64.
@@ -63,7 +63,7 @@ Aggregator (`0x000E`). RIoT2.Orchestrator consumes the package to map Core
   [RIoT2.Core README](https://github.com/Revolutionized-IoT2/RIoT2.Core/blob/main/README.md#matter-device-declarations)
 
 The orchestrator currently references `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version
-`0.1.14`.
+`0.1.15`.
 
 ## Controller and UI
 
@@ -135,9 +135,9 @@ on networks or machines where that is not intended.
 ## Versions and releases
 
 - Release notes are in [CHANGELOG.md](CHANGELOG.md).
-- Current project versions are `0.1.14` in `RIoT2.Matter.csproj` and
+- Current project versions are `0.1.15` in `RIoT2.Matter.csproj` and
   `ControlBridge/RIoT2.Matter.ControlBridge.csproj`.
-- To release, push a tag such as `0.1.14`. CI validates, packs and pushes the core package first,
+- To release, push a tag such as `0.1.15`. CI validates, packs and pushes the core package first,
   then restores ControlBridge against that package version and publishes the bridge package.
 
 ## Contributing

@@ -12,7 +12,7 @@ roles on one commissionable Matter node:
 
 ## Requirements
 
-- .NET 9 SDK or later. `ImplicitUsings` and `Nullable` are enabled.
+- .NET 10 SDK or later. `ImplicitUsings` and `Nullable` are enabled.
 - An IPv6-capable network interface. Matter operational traffic uses UDP port `5540`.
 - Device attestation credentials (DAC/PAI/CD plus a DAC signer).
 - A host-specific persistence plan for commissioned fabrics if the bridge should survive restarts.
@@ -216,7 +216,7 @@ A peer that fails to resolve is retried on the next binding change.
 
 ## Lifecycle guarantees
 
-Version `0.1.14` hardened dynamic bridged endpoint lifecycle:
+Version `0.1.15` includes dynamic bridged endpoint lifecycle hardening:
 
 - Attach composes the endpoint off-node and publishes it only after adapter attach succeeds.
 - Failed or cancelled attach leaves no registry entry and no `PartsList` entry.
@@ -243,7 +243,7 @@ Changed --> Close["Stale peer sessions closed"]
 
 ## Orchestrator integration
 
-RIoT2.Orchestrator references `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version `0.1.14`.
+RIoT2.Orchestrator references `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version `0.1.15`.
 It stores bridge configuration and state, exposes `/api/matter/*`, and maps Core
 `MatterEndpointTemplate` declarations to bridged endpoints.
 

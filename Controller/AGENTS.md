@@ -5,7 +5,7 @@ only controller-backend guidance.
 
 ## What this is
 
-The standalone .NET 9 Matter controller / commissioner / administrator backend. It discovers,
+The standalone .NET 10 Matter controller / commissioner / administrator backend. It discovers,
 commissions and controls Matter nodes on a fabric, persists controller credentials and exposes HTTP
 endpoints for the separate Vue UI.
 

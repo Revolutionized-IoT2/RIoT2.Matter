@@ -1,0 +1,23 @@
+<Project>
+  <!-- Central package versions (plan M8 step 2). Shared versions come from
+       Revolutionized-IoT2/.github build/Directory.Packages.props.template. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
+    <PackageVersion Include="QRCoder" Version="1.6.0" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.0.7" />
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.12" />
+  </ItemGroup>
+  <ItemGroup Label="Tests">
+    <!-- xUnit stays on 2.x for now (M8). -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RIoT2MatterPackageVersion)' != ''">
+    <!-- The release workflow builds ControlBridge against the just-published Matter package. -->
+    <PackageVersion Include="RIoT2.Matter" Version="$(RIoT2MatterPackageVersion)" />
+  </ItemGroup>
+</Project>

@@ -1,10 +1,12 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.1.14</Version>
+    <Version>0.1.15</Version>
+    <!-- GitHub Packages has no symbol server: ship the PDB inside the DLL for SourceLink. -->
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,10 +26,10 @@
   </ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Scalar.AspNetCore" Version="2.0.7" />
-		<PackageReference Include="QRCoder" Version="1.6.0" />
+		<PackageReference Include="Scalar.AspNetCore" />
+		<PackageReference Include="QRCoder" />
 		<!-- CMS SignedData, used to build the Certification Declaration in TestAttestationFactory. -->
-		<PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.0" />
+		<PackageReference Include="System.Security.Cryptography.Pkcs" />
 	</ItemGroup>
 
 	<!-- The fixed CHIP test PAA / CD-signing material TestAttestationFactory mints TEST chains from. -->

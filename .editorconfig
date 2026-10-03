@@ -1,0 +1,76 @@
+# Shared RIoT2 analyzer settings (plan M8 step 1).
+# Source of truth: Revolutionized-IoT2/.github build/.editorconfig. Every .NET repository keeps an
+# identical copy at its root. Change the template first, then copy it everywhere.
+#
+# Directory.Build.props turns on AnalysisLevel=latest-recommended, and CI treats warnings as errors.
+# The rules below already had findings in existing code when that was switched on (October 2026).
+# They are lowered to "suggestion", so they stay visible in the IDE without failing CI. Each group
+# gives the reason. To tighten a rule: fix its findings in every repository, then delete its line
+# here. Do not add a rule here without a reason.
+
+root = true
+
+[*.cs]
+
+# Performance hints with no behavioural effect. Fix them when touching the code.
+dotnet_diagnostic.CA1805.severity = suggestion
+dotnet_diagnostic.CA1822.severity = suggestion
+dotnet_diagnostic.CA1825.severity = suggestion
+dotnet_diagnostic.CA1826.severity = suggestion
+dotnet_diagnostic.CA1827.severity = suggestion
+dotnet_diagnostic.CA1829.severity = suggestion
+dotnet_diagnostic.CA1852.severity = suggestion
+dotnet_diagnostic.CA1854.severity = suggestion
+dotnet_diagnostic.CA1859.severity = suggestion
+dotnet_diagnostic.CA1860.severity = suggestion
+dotnet_diagnostic.CA1861.severity = suggestion
+dotnet_diagnostic.CA1862.severity = suggestion
+dotnet_diagnostic.CA1864.severity = suggestion
+dotnet_diagnostic.CA1866.severity = suggestion
+dotnet_diagnostic.CA1869.severity = suggestion
+
+# Style modernisations (throw helpers, generic overloads, nameof). No behavioural effect.
+dotnet_diagnostic.CA1507.severity = suggestion
+dotnet_diagnostic.CA1510.severity = suggestion
+dotnet_diagnostic.CA2263.severity = suggestion
+
+# Logging: LoggerMessage delegates and constant templates are a wide mechanical change across all
+# services. New log calls should use message templates with named placeholders.
+dotnet_diagnostic.CA1727.severity = suggestion
+dotnet_diagnostic.CA1848.severity = suggestion
+dotnet_diagnostic.CA2254.severity = suggestion
+
+# Naming and public API shape: Core, Matter and the plugins are released packages, and plugins
+# compile against these names. Renaming them is a breaking change (see M1 for the Core split).
+dotnet_diagnostic.CA1051.severity = suggestion
+dotnet_diagnostic.CA1068.severity = suggestion
+dotnet_diagnostic.CA1070.severity = suggestion
+dotnet_diagnostic.CA1707.severity = suggestion
+dotnet_diagnostic.CA1711.severity = suggestion
+dotnet_diagnostic.CA1716.severity = suggestion
+dotnet_diagnostic.CA1720.severity = suggestion
+dotnet_diagnostic.CA1725.severity = suggestion
+
+# Globalization: each call site needs a decision between invariant and current culture, and some
+# feed persisted or wire data. Fix per call site with tests, not mechanically.
+dotnet_diagnostic.CA1304.severity = suggestion
+dotnet_diagnostic.CA1305.severity = suggestion
+dotnet_diagnostic.CA1309.severity = suggestion
+dotnet_diagnostic.CA1310.severity = suggestion
+dotnet_diagnostic.CA1311.severity = suggestion
+
+# Exceptions, disposal and ignored results: changing them changes what callers can catch and how
+# lifetimes end. Device and service lifecycles are being reworked in M3 and M11.
+dotnet_diagnostic.CA1001.severity = suggestion
+dotnet_diagnostic.CA1806.severity = suggestion
+dotnet_diagnostic.CA1816.severity = suggestion
+dotnet_diagnostic.CA2201.severity = suggestion
+
+# Async: cancellation forwarding and fire-and-forget ValueTasks are covered by M11, which turns on
+# the threading analyzers.
+dotnet_diagnostic.CA2012.severity = suggestion
+dotnet_diagnostic.CA2016.severity = suggestion
+
+# Windows-only CommunityToolkit.Mvvm hint (Mobile): [ObservableProperty] fields should become
+# partial properties for WinRT AOT. The Windows head is not shipped; Android is unaffected.
+dotnet_diagnostic.MVVMTK0045.severity = suggestion

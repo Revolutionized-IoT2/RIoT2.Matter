@@ -1,17 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net9.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <RootNamespace>RIoT2.Matter.ControlBridge</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <Version>0.1.14</Version>
+        <Version>0.1.15</Version>
+        <!-- GitHub Packages has no symbol server: ship the PDB inside the DLL for SourceLink. -->
+        <DebugType>embedded</DebugType>
     </PropertyGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\RIoT2.Matter.csproj" Condition="'$(RIoT2MatterPackageVersion)' == ''" />
-      <PackageReference Include="RIoT2.Matter" Version="$(RIoT2MatterPackageVersion)" Condition="'$(RIoT2MatterPackageVersion)' != ''" />
+      <PackageReference Include="RIoT2.Matter" Condition="'$(RIoT2MatterPackageVersion)' != ''" />
     </ItemGroup>
 
 </Project>
