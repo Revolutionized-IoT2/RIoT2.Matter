@@ -4,7 +4,9 @@
 #
 # Directory.Build.props turns on AnalysisLevel=latest-recommended, and CI treats warnings as errors.
 # The rules below already had findings in existing code when that was switched on (October 2026).
-# They are lowered to "suggestion", so they stay visible in the IDE without failing CI. Each group
+# CI installs the newest 10.0.x SDK, and a new SDK feature band can add rules to the 10.0 level
+# (CA1873 arrived with 10.0.4xx). Build with the newest 10.0 SDK to see what CI sees.
+# The rules are lowered to "suggestion", so they stay visible in the IDE without failing CI. Each group
 # gives the reason. To tighten a rule: fix its findings in every repository, then delete its line
 # here. Do not add a rule here without a reason.
 
@@ -38,6 +40,7 @@ dotnet_diagnostic.CA2263.severity = suggestion
 # services. New log calls should use message templates with named placeholders.
 dotnet_diagnostic.CA1727.severity = suggestion
 dotnet_diagnostic.CA1848.severity = suggestion
+dotnet_diagnostic.CA1873.severity = suggestion
 dotnet_diagnostic.CA2254.severity = suggestion
 
 # Naming and public API shape: Core, Matter and the plugins are released packages, and plugins
