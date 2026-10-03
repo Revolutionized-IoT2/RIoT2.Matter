@@ -1,75 +1,69 @@
-# riot2.matter.controller.ui
+# RIoT2.Matter Controller UI
 
-Scaffolded with Vuetify CLI.
+Vue 3 + Vite + Vuetify UI for the `RIoT2.Matter.Controller` backend. It lets an operator discover
+and commission Matter devices, inspect live device state, invoke common controls, organize devices
+into rooms and view the fabric topology.
 
-## ❗️ Documentation
+This project is UI-only. Matter protocol work lives in `Controller/`; the UI consumes backend DTOs
+and endpoints through its backend client abstraction.
 
-- Primary docs: https://vuetifyjs.com/
-- Getting started guide: https://vuetifyjs.com/en/getting-started/installation/
-- Community support: https://community.vuetifyjs.com/
-- Issue tracker: https://issues.vuetifyjs.com/
+## Stack
 
-## 🧱 Stack
+- Vue 3
+- Vite
+- Vuetify
+- Pinia
+- Vue Router
+- TypeScript
+- Vitest + Vue Test Utils
 
-- Framework: Vue 3 + Vite
-- UI Library: Vuetify
-- Language: TypeScript
-- Package manager: npm
+## Project structure
 
-## 🧭 Start Here
+| Path | Contents |
+| --- | --- |
+| `src/main.ts` | App bootstrap |
+| `src/router/` | Home, add-device, detail, rooms and fabric routes |
+| `src/services/backend/` | HTTP and in-memory backend clients, DTOs and cluster constants |
+| `src/services/organization/` | UI-local room/layout persistence |
+| `src/stores/` | Pinia stores for commissioning, devices, selected device and rooms |
+| `src/presentation/views/` | Page-level views |
+| `src/presentation/components/` | Reusable UI components |
+| `src/styles/` | Vuetify/global styles |
 
-- Main entry: `src/main.ts`
-- Main app component: `src/App.vue`
-- Main styles: `src/styles/`
-- Plugin setup: `src/plugins/`
+## Configuration
 
-## 📁 Project Structure
+Vite environment variables:
 
-- `src/main.ts` — application entry point
-- `src/App.vue` — root component
-- `src/components/` — reusable Vue components
-- `src/plugins/` — plugin registration and setup
-- `src/styles/` — global styles and theme settings
-- `public/` — static public files
+| Variable | Meaning |
+| --- | --- |
+| `VITE_BACKEND_MODE` | `http` for the real backend or `memory` for the in-memory fake |
+| `VITE_BACKEND_URL` | Base URL for the controller backend when using HTTP mode |
 
-## ✨ Enabled Features
+## Build and test
 
-- Base setup
+From `C:\Src\RIoT2\RIoT2.Matter\Controller\Ui`:
 
-## 💿 Install
-
-Use your selected package manager (npm) to install dependencies:
-
-```bash
-npm install
-```
-
-## 🚀 Quick Start
-
-```bash
-npm install
-npm run dev
-```
-
-## 🏗️ Build
-
-```bash
+```powershell
+npm ci --no-audit --no-fund
 npm run build
+npm test
 ```
 
-## 🧪 Available Scripts
+`npm run build` runs TypeScript/Vue type checking and the production Vite build. `npm test` runs
+Vitest with jsdom and in-memory backends.
 
-- `npm run dev`
-- `npm run build`
-- `npm run preview`
-- `npm run build-only`
-- `npm run type-check`
+Other useful scripts:
 
-## 💪 Support Vuetify Development
+```powershell
+npm run dev
+npm run preview
+npm run lint
+npm run format
+```
 
-This project uses Vuetify - an MIT licensed Open Source project. We are glad to welcome contributors and any support for ongoing development:
+## Related
 
-- Contribute to Vuetify and ecosystem projects: https://github.com/vuetifyjs
-- Request enterprise support: https://support.vuetifyjs.com/
-- Sponsor on GitHub: https://github.com/sponsors/vuetifyjs
-- Support on Open Collective: https://opencollective.com/vuetify
+- Repository README: [../../README.md](../../README.md)
+- Controller/backend notes: [../../docs/controller.md](../../docs/controller.md)
+- UI roadmap: [ROADMAP.md](ROADMAP.md)
+- Agent instructions: [AGENTS.md](AGENTS.md)
