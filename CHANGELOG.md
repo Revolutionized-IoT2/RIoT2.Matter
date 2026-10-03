@@ -14,6 +14,8 @@ GitHub Packages.
   `Controller/Credentials/FabricCertificateAuthority.cs`.
 - Kept ControlBridge package-mode builds on `-p:RIoT2MatterPackageVersion=<version>` through
   conditional central package management.
+- Fixed `POST /api/interaction/read` (UI compatibility API) for Level Control: a null
+  `CurrentLevel` now returns `null` instead of failing with a server error.
 - Documentation: `AGENTS.md` is the AI instruction file, `CLAUDE.md` imports it, and version notes
   moved from the README to this file.
 

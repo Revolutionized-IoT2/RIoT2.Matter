@@ -234,7 +234,7 @@ public static class UiCompatEndpoints
             object? value = path.ClusterId switch
             {
                 OnOffClusterId => await client.ReadOnOffAsync(endpoint, timeout.Token).ConfigureAwait(false),
-                LevelControlClusterId => (int)await client.ReadCurrentLevelAsync(endpoint, timeout.Token).ConfigureAwait(false),
+                LevelControlClusterId => (int?)await client.ReadCurrentLevelAsync(endpoint, timeout.Token).ConfigureAwait(false),
                 _ => null,
             };
 
