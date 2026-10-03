@@ -1,6 +1,6 @@
 ﻿# RIoT2.Matter.Controller — Roadmap
 
-A phased plan to deliver a **fully implemented, portable Matter controller backend** on **.NET 9**.
+A phased plan to deliver a **fully implemented, portable Matter controller backend** on **.NET 10**.
 The controller is the *commissioner / administrator* side of Matter: it discovers, commissions, and
 controls Matter nodes on a fabric. UI ships as a **separate project** — this roadmap covers backend
 functionality only.
@@ -24,7 +24,7 @@ building blocks should be placed in `RIoT2.Matter` and consumed here.
 
 **Goal:** a buildable, testable skeleton.
 
-- [x] Create `RIoT2.Matter.Controller` project targeting `net9.0` (`ImplicitUsings`, `Nullable`).
+- [x] Create `RIoT2.Matter.Controller` project targeting `net10.0` (`ImplicitUsings`, `Nullable`).
 - [x] Add `ProjectReference` to `RIoT2.Matter`.
 - [x] Establish folder layout: `Commissioning/`, `Credentials/`, `Discovery/`, `InteractionModel/`,
       `Hosting/`.

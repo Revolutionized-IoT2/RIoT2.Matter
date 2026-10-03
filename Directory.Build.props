@@ -1,0 +1,35 @@
+<Project>
+  <!--
+    Shared RIoT2 build settings (plan M8 step 1).
+    Source of truth: Revolutionized-IoT2/.github build/Directory.Build.props. Every .NET repository
+    keeps an identical copy at its root. Change the template first, then copy it everywhere.
+    Project files may override any property set here.
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Advisories are published independently of code changes, so they must not break an
+         unrelated CI build. They stay visible as warnings; Renovate (M9) raises the updates. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+    <!-- NU1507: feeds differ per machine (CI "github" source, Docker builds, the local .localfeed),
+         so package source mapping can't be committed yet. The reusable CI workflows (M9) own it. -->
+    <NoWarn>$(NoWarn);NU1507</NoWarn>
+    <!-- SourceLink (M8 step 11). The .NET SDK adds it for GitHub repositories; packable libraries
+         also set DebugType=embedded because GitHub Packages has no symbol server. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <!-- CI sets CI=true (GitHub Actions does this by default). Local builds are never blocked. -->
+  <PropertyGroup Condition="'$(CI)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- Repository-specific settings live in Directory.Build.repo.props, so this file stays identical. -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.repo.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.repo.props')" />
+</Project>

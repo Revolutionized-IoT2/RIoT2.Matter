@@ -5,7 +5,7 @@ adds only ControlBridge-specific guidance.
 
 ## What this is
 
-`RIoT2.Matter.ControlBridge` is a .NET 9 class library that hosts a Matter Control Bridge endpoint
+`RIoT2.Matter.ControlBridge` is a .NET 10 class library that hosts a Matter Control Bridge endpoint
 and, optionally, an Aggregator endpoint for bridged non-Matter devices. RIoT2.Orchestrator consumes
 this package to bridge RIoT2 devices into Matter ecosystems.
 
@@ -21,8 +21,8 @@ dotnet test .\RIoT2.Matter.sln -c Release
 Package-release validation uses a package dependency on the core library:
 
 ```powershell
-dotnet restore .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -p:RIoT2MatterPackageVersion=0.1.14
-dotnet build .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -c Release --no-restore -p:RIoT2MatterPackageVersion=0.1.14
+dotnet restore .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -p:RIoT2MatterPackageVersion=0.1.15
+dotnet build .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -c Release --no-restore -p:RIoT2MatterPackageVersion=0.1.15
 ```
 
 ## Layout
@@ -52,7 +52,7 @@ dotnet build .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -c Release --no-r
 - Keep onboarding passcode and verifier sourced from the same `PaseProvisioning` bundle.
 - Do not make `Create(settings)` silently open network sessions; it intentionally uses an unresolved
   resolver until a host supplies `IOperationalPeerResolver`.
-- When changing bridged-device lifecycle, preserve 0.1.14 guarantees: publish only after attach,
+- When changing bridged-device lifecycle, preserve the 0.1.15 guarantees: publish only after attach,
   keep state intact on failed detach, cleanup with non-cancelled tokens and serialize lifecycle
   operations.
 - Adapters must remain responsible for releasing external device resources they own.

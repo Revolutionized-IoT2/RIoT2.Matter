@@ -1,7 +1,7 @@
 # RIoT2.Matter.ControlBridge
 
 Class library that wraps a Matter Control Bridge (`0x0840`) and optional Aggregator (`0x000E`) into
-a controller-facing API. It is built on `RIoT2.Matter` for .NET 9 and is published as the
+a controller-facing API. It is built on `RIoT2.Matter` for .NET 10 and is published as the
 `RIoT2.Matter.ControlBridge` package.
 
 The bridge can:
@@ -27,7 +27,7 @@ For package-release validation, pass `RIoT2MatterPackageVersion` so the bridge r
 core package:
 
 ```powershell
-dotnet restore .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -p:RIoT2MatterPackageVersion=0.1.14
+dotnet restore .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -p:RIoT2MatterPackageVersion=0.1.15
 ```
 
 ## Quick start

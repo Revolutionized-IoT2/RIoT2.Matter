@@ -8,7 +8,7 @@ workspace map, platform-wide rules and the documentation rules. In the local wor
 
 ## What this is
 
-A managed .NET 9 implementation of the Matter smart-home protocol. It ships the `RIoT2.Matter`
+A managed .NET 10 implementation of the Matter smart-home protocol. It ships the `RIoT2.Matter`
 NuGet package, the `RIoT2.Matter.ControlBridge` package consumed by RIoT2.Orchestrator, a standalone
 controller app with a Vue UI, an On/Off sample, and offline regression tests.
 
@@ -51,8 +51,8 @@ CI:
 Release:
 
 ```powershell
-git tag 0.1.14
-git push origin 0.1.14
+git tag 0.1.15
+git push origin 0.1.15
 ```
 
 A tag push publishes both NuGet packages. A local `dotnet pack` is only a smoke test, not a release.
@@ -61,7 +61,7 @@ A tag push publishes both NuGet packages. A local `dotnet pack` is only a smoke 
 
 | Path | Contents |
 |---|---|
-| `RIoT2.Matter.csproj` | Core Matter library (`net9.0`, package version 0.1.14) |
+| `RIoT2.Matter.csproj` | Core Matter library (`net10.0`, package version 0.1.15) |
 | `Clusters/` | Cluster implementations, device-type builders, commissioning support |
 | `Crypto/`, `SecureChannel/` | SPAKE2+, PASE, CASE, certificate and session security |
 | `Messaging/`, `Transport/` | Message framing, exchanges, MRP, sessions and UDP transport |
@@ -100,7 +100,7 @@ contracts:
 - The `IMatterDevice` declaration example lives in the
   [RIoT2.Core README](https://github.com/Revolutionized-IoT2/RIoT2.Core/blob/main/README.md#matter-device-declarations).
 
-The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version `0.1.14`
+The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version `0.1.15`
 (`C:\Src\RIoT2\RIoT2.Net.Orchestrator\RIoT2.Net.Orchestrator.csproj`).
 
 ## Rules
@@ -121,6 +121,7 @@ The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBrid
   package by version.
 - Keep `ControlBridge`'s `RIoT2MatterPackageVersion` behavior: source builds use a project reference,
   release builds can force a package dependency.
+- Keep `PackageReference` items versionless; package versions belong in `Directory.Packages.props`.
 - Controller backend code owns Matter protocol and fabric state. `Controller/Ui` must remain a UI
   layer over backend DTOs and service endpoints; do not reimplement protocol logic there.
 - When changing RIoT2 bridging behavior, check the orchestrator's `MatterBridgeService`,
@@ -160,6 +161,7 @@ The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBrid
 - [M3](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/plans/m03-split-oversized-classes.md):
   split oversized Matter bridge service in the orchestrator.
 - [M8](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/plans/m08-dotnet10-migration.md):
-  coordinated .NET 10 migration.
+  completed the target-framework migration; nullable and threading-analyzer practice steps remain
+  open.
 - [M9](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/plans/m09-ci-cd.md):
   reusable CI/CD workflow work.
