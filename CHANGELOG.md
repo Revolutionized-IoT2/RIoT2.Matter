@@ -6,6 +6,9 @@ GitHub Packages.
 
 ## [Unreleased]
 
+- CI: `validate.yml` and `main.yml` were replaced by `ci.yml` and `release.yml`, which call the
+  reusable workflows in the `.github` hub. The checks are the same (Linux and Windows, Controller
+  UI, package smoke test), plus a secret scan.
 - Security: `Controller/appsettings.json` no longer commits a concrete
   `MatterController:CredentialProtectionSecret`. The Controller has a `UserSecretsId` and refuses
   to start while the secret is missing or blank. The old value is public, so a local credential

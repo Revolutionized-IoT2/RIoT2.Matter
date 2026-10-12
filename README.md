@@ -111,10 +111,10 @@ npm run build
 npm test
 ```
 
-CI runs these same .NET and UI checks in
-[validate.yml](.github/workflows/validate.yml). Tag pushes matching `*.*.*` run
-[main.yml](.github/workflows/main.yml), which validates first, then publishes `RIoT2.Matter` and
-`RIoT2.Matter.ControlBridge` to GitHub Packages.
+CI runs these same .NET and UI checks in [ci.yml](.github/workflows/ci.yml) on every push. Tag
+pushes matching `*.*.*` run [release.yml](.github/workflows/release.yml), which validates first,
+then publishes `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` to GitHub Packages
+([CI guide](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/guides/ci.md)).
 
 ## Running locally
 

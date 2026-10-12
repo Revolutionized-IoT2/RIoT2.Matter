@@ -43,9 +43,11 @@ documentation-only work.
 
 CI:
 
-- `.github/workflows/validate.yml` restores, builds, tests and smoke-packs the .NET solution on Linux
-  and Windows, then installs/builds/tests the Controller UI on Node 22.
-- `.github/workflows/main.yml` runs on `*.*.*` tags, calls validation, publishes `RIoT2.Matter`, then
+- `.github/workflows/ci.yml` runs on every push and pull request: it builds and tests the .NET
+  solution on Linux and Windows, builds and tests the Controller UI on Node 22, smoke-packs both
+  packages and scans for secrets. It calls the reusable workflows in the `.github` hub
+  ([CI guide](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/guides/ci.md)).
+- `.github/workflows/release.yml` runs on `*.*.*` tags: it validates, publishes `RIoT2.Matter`, then
   restores and publishes `RIoT2.Matter.ControlBridge` with `RIoT2MatterPackageVersion=<tag>`.
 
 Release:
@@ -146,7 +148,7 @@ The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBrid
 - The OnOff sample now hosts a dimmable light (`LightingProfile.DimmableLight`) and includes
   brightness controls even though the project name is still `OnOffSample`.
 - The Controller UI's `npm run build` already runs `vue-tsc`; run `npm test` separately. The `lint`
-  script exists but is not part of `validate.yml`.
+  script exists but is not part of CI.
 
 ## Related work
 
