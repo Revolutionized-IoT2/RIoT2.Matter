@@ -1,0 +1,47 @@
+name: Release
+
+# Push a x.y.z tag to publish RIoT2.Matter <tag>, then RIoT2.Matter.ControlBridge <tag> built
+# against that published package, to GitHub Packages.
+
+on:
+  push:
+    tags: ["*.*.*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  validate:
+    uses: Revolutionized-IoT2/.github/.github/workflows/dotnet-validate.yml@main
+    with:
+      build: RIoT2.Matter.sln
+      test: RIoT2.Matter.sln
+      os: '["ubuntu-latest", "windows-latest"]'
+      github-packages: false
+
+  controller-ui:
+    uses: Revolutionized-IoT2/.github/.github/workflows/node-validate.yml@main
+    with:
+      working-directory: Controller/Ui
+      node-version: "22"
+      scripts: build test
+
+  matter:
+    needs: [validate, controller-ui]
+    uses: Revolutionized-IoT2/.github/.github/workflows/nuget-publish.yml@main
+    with:
+      project: RIoT2.Matter.csproj
+      push: true
+    secrets: inherit
+
+  # Package mode: restores the RIoT2.Matter package the previous job published.
+  controlbridge:
+    needs: matter
+    uses: Revolutionized-IoT2/.github/.github/workflows/nuget-publish.yml@main
+    with:
+      project: ControlBridge/RIoT2.Matter.ControlBridge.csproj
+      msbuild-args: -p:RIoT2MatterPackageVersion=${{ github.ref_name }}
+      github-packages: true
+      push: true
+    secrets: inherit

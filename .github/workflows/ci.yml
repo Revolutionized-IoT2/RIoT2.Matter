@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    uses: Revolutionized-IoT2/.github/.github/workflows/dotnet-validate.yml@main
+    with:
+      build: RIoT2.Matter.sln
+      test: RIoT2.Matter.sln
+      os: '["ubuntu-latest", "windows-latest"]'
+      github-packages: false
+
+  controller-ui:
+    uses: Revolutionized-IoT2/.github/.github/workflows/node-validate.yml@main
+    with:
+      working-directory: Controller/Ui
+      node-version: "22"
+      scripts: build test
+
+  pack-matter:
+    uses: Revolutionized-IoT2/.github/.github/workflows/nuget-publish.yml@main
+    with:
+      project: RIoT2.Matter.csproj
+
+  # Source mode: the bridge references the core library as a project.
+  pack-controlbridge:
+    uses: Revolutionized-IoT2/.github/.github/workflows/nuget-publish.yml@main
+    with:
+      project: ControlBridge/RIoT2.Matter.ControlBridge.csproj
+
+  secret-scan:
+    uses: Revolutionized-IoT2/.github/.github/workflows/secret-scan.yml@main
