@@ -78,8 +78,16 @@ backend.
 - UI roadmap: [Controller/Ui/ROADMAP.md](Controller/Ui/ROADMAP.md)
 
 For local controller configuration, provide a stable `MatterController:CredentialProtectionSecret`
-through user secrets, environment variables or another secret provider. Do not commit real
-credential-protection secrets.
+through user secrets, environment variables or another secret provider. `appsettings.json` leaves
+it empty, and the controller refuses to start without it:
+
+```powershell
+dotnet user-secrets set "MatterController:CredentialProtectionSecret" "<stable secret>" --project .\Controller
+```
+
+Do not commit real credential-protection secrets. A credential store that was protected with the
+value formerly committed in `appsettings.json` must be recreated with a new secret (see
+[CHANGELOG.md](CHANGELOG.md)).
 
 ## Build and test
 

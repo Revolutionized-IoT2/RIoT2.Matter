@@ -39,9 +39,11 @@ builder.Services.Configure<MatterControllerOptions>(
 builder.Services.AddSingleton<ICredentialStore>(sp =>
 {
     var options = sp.GetRequiredService<IOptions<MatterControllerOptions>>().Value;
-    var secret = options.CredentialProtectionSecret
-        ?? throw new InvalidOperationException(
-            $"{nameof(MatterControllerOptions.CredentialProtectionSecret)} must be configured to protect credentials at rest.");
+    var secret = options.CredentialProtectionSecret;
+    if (string.IsNullOrWhiteSpace(secret))
+        throw new InvalidOperationException(
+            $"{nameof(MatterControllerOptions.CredentialProtectionSecret)} must be configured to protect credentials at rest. " +
+            $"For local development run: dotnet user-secrets set \"{MatterControllerOptions.SectionName}:{nameof(MatterControllerOptions.CredentialProtectionSecret)}\" \"<stable secret>\"");
 
     // Anchor a relative path to the assembly's own directory (stable regardless of the process's
     // current working directory), not the ambient CWD: otherwise `dotnet run` (CWD = project folder),

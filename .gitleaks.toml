@@ -1,0 +1,19 @@
+# Secret scanning (gitleaks) for RIoT2.Matter. Extends the default rules and allowlists only
+# reviewed, intentional test material. Do not add real keys here; rotate them instead.
+title = "RIoT2.Matter"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public CSA/CHIP test attestation keys (PAA NoVID, CD signing) and keys generated for the test vendor id 0xFFF2. Production commissioners never trust them."
+paths = [
+  '''(^|/)Certificates/Chip-Test-(CD-Signing|PAA-NoVID)-Key\.pem$''',
+  '''(^|/)OnOffSample/credentials/test-(DAC|PAI)-FFF2[^/]*-key\.pem$''',
+]
+
+[[allowlists]]
+description = "generic-api-key false positive on parameter lists such as 'ECDsa paiKey, X509Certificate2 pai'."
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+regexes = ['''^pa[ai]Key, X509Certificate2\s*$''']

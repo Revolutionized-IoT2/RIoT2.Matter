@@ -66,7 +66,10 @@ do not confuse those orchestrator routes with this standalone controller backend
 
 - `CredentialProtectionSecret` is required at runtime and must stay stable across restarts. Changing
   it renders persisted credentials unrecoverable.
-- `appsettings.json` contains development defaults. Do not copy its concrete secret-like values.
+- `appsettings.json` leaves `CredentialProtectionSecret` empty, and startup fails until it is set.
+  Set it with `dotnet user-secrets set "MatterController:CredentialProtectionSecret" "<secret>"`
+  (the project has a `UserSecretsId`) or the `MatterController__CredentialProtectionSecret`
+  environment variable. Never commit a value.
 - `TrustedPaaCertificates` and `TrustedCertificationDeclarationSigners` must both be configured.
 - Primary backend routes and `UiCompat` routes overlap under `/api`; keep compatibility routes
   synchronized with the UI before removing them.

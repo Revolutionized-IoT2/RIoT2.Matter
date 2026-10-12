@@ -16,6 +16,13 @@ GitHub Packages.
   conditional central package management.
 - Fixed `POST /api/interaction/read` (UI compatibility API) for Level Control: a null
   `CurrentLevel` now returns `null` instead of failing with a server error.
+- Security: `Controller/appsettings.json` no longer commits a concrete
+  `MatterController:CredentialProtectionSecret`. The Controller has a `UserSecretsId` and refuses
+  to start while the secret is missing or blank. The old value is public, so a local credential
+  store created with it must be deleted and recreated (re-commission its nodes) under a new secret.
+  The Orchestrator's Control Bridge is not affected: it uses its own generated `FabricStoreKey`.
+- Added `.gitleaks.toml`, which allowlists the public CHIP test PAA/CD/PAI/DAC keys and a
+  `generic-api-key` false positive, so a secret scan only reports real findings.
 - Documentation: `AGENTS.md` is the AI instruction file, `CLAUDE.md` imports it, and version notes
   moved from the README to this file.
 
