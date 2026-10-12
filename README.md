@@ -63,7 +63,7 @@ Aggregator (`0x000E`). RIoT2.Orchestrator consumes the package to map Core
   [RIoT2.Core README](https://github.com/Revolutionized-IoT2/RIoT2.Core/blob/main/README.md#matter-device-declarations)
 
 The orchestrator currently references `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version
-`0.1.15`.
+`1.0.0`.
 
 ## Controller and UI
 
@@ -143,9 +143,9 @@ on networks or machines where that is not intended.
 ## Versions and releases
 
 - Release notes are in [CHANGELOG.md](CHANGELOG.md).
-- Current project versions are `0.1.15` in `RIoT2.Matter.csproj` and
-  `ControlBridge/RIoT2.Matter.ControlBridge.csproj`.
-- To release, push a tag such as `0.1.15`. CI validates, packs and pushes the core package first,
+- The latest release is `1.0.0`, which is also the version in `RIoT2.Matter.csproj` and
+  `ControlBridge/RIoT2.Matter.ControlBridge.csproj`. CI takes the package version from the tag.
+- To release, push a tag such as `1.0.1`. CI validates, packs and pushes the core package first,
   then restores ControlBridge against that package version and publishes the bridge package.
 
 ## Contributing

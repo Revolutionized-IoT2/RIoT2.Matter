@@ -27,7 +27,7 @@ For package-release validation, pass `RIoT2MatterPackageVersion` so the bridge r
 core package:
 
 ```powershell
-dotnet restore .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -p:RIoT2MatterPackageVersion=0.1.15
+dotnet restore .\ControlBridge\RIoT2.Matter.ControlBridge.csproj -p:RIoT2MatterPackageVersion=1.0.0
 ```
 
 ## Quick start

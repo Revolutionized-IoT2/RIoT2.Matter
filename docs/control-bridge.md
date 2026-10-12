@@ -216,7 +216,7 @@ A peer that fails to resolve is retried on the next binding change.
 
 ## Lifecycle guarantees
 
-Version `0.1.15` includes dynamic bridged endpoint lifecycle hardening:
+Version `1.0.0` includes dynamic bridged endpoint lifecycle hardening:
 
 - Attach composes the endpoint off-node and publishes it only after adapter attach succeeds.
 - Failed or cancelled attach leaves no registry entry and no `PartsList` entry.
@@ -243,7 +243,7 @@ Changed --> Close["Stale peer sessions closed"]
 
 ## Orchestrator integration
 
-RIoT2.Orchestrator references `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version `0.1.15`.
+RIoT2.Orchestrator references `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version `1.0.0`.
 It stores bridge configuration and state, exposes `/api/matter/*`, and maps Core
 `MatterEndpointTemplate` declarations to bridged endpoints.
 

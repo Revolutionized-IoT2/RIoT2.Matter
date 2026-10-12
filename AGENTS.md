@@ -51,8 +51,8 @@ CI:
 Release:
 
 ```powershell
-git tag 0.1.15
-git push origin 0.1.15
+git tag 1.0.1
+git push origin 1.0.1
 ```
 
 A tag push publishes both NuGet packages. A local `dotnet pack` is only a smoke test, not a release.
@@ -61,7 +61,7 @@ A tag push publishes both NuGet packages. A local `dotnet pack` is only a smoke 
 
 | Path | Contents |
 |---|---|
-| `RIoT2.Matter.csproj` | Core Matter library (`net10.0`, package version 0.1.15) |
+| `RIoT2.Matter.csproj` | Core Matter library (`net10.0`, package version 1.0.0; CI uses the tag) |
 | `Clusters/` | Cluster implementations, device-type builders, commissioning support |
 | `Crypto/`, `SecureChannel/` | SPAKE2+, PASE, CASE, certificate and session security |
 | `Messaging/`, `Transport/` | Message framing, exchanges, MRP, sessions and UDP transport |
@@ -100,7 +100,7 @@ contracts:
 - The `IMatterDevice` declaration example lives in the
   [RIoT2.Core README](https://github.com/Revolutionized-IoT2/RIoT2.Core/blob/main/README.md#matter-device-declarations).
 
-The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version `0.1.15`
+The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBridge` version `1.0.0`
 (`C:\Src\RIoT2\RIoT2.Net.Orchestrator\RIoT2.Net.Orchestrator.csproj`).
 
 ## Rules
