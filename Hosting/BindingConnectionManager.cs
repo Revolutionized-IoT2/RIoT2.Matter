@@ -1,5 +1,6 @@
 using RIoT2.Matter.Clusters;
 using RIoT2.Matter.DataModel;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.InteractionModel;
 
 namespace RIoT2.Matter.Hosting;
@@ -26,26 +27,51 @@ namespace RIoT2.Matter.Hosting;
 /// </remarks>
 public sealed class BindingConnectionManager : IAsyncDisposable
 {
-    private readonly MatterNodeHost _host;
+    private readonly Func<FabricIndex, NodeId, System.Net.IPEndPoint, CancellationToken, Task<MatterNodeConnection>> _connect;
     private readonly BindingCluster _binding;
     private readonly IOperationalPeerResolver _resolver;
 
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
     private readonly Dictionary<OperationalPeer, MatterNodeConnection> _connections = new();
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly TimeSpan _retryInterval;
+    private readonly TimeProvider _timeProvider;
+    private Task _retryLoop = Task.CompletedTask;
 
     private bool _started;
+
+    /// <summary>How often a bound peer without a connection is tried again by default.</summary>
+    public static readonly TimeSpan DefaultRetryInterval = TimeSpan.FromSeconds(30);
     private volatile bool _disposed;
 
     /// <summary>Creates a manager binding <paramref name="binding"/>'s targets to sessions on <paramref name="host"/>.</summary>
     /// <param name="host">The started host whose <see cref="MatterNodeHost.ConnectAsync"/> opens the sessions.</param>
     /// <param name="binding">The controller endpoint's Binding cluster whose targets are driven.</param>
     /// <param name="resolver">Resolves each unicast peer's operational IP endpoint.</param>
-    public BindingConnectionManager(MatterNodeHost host, BindingCluster binding, IOperationalPeerResolver resolver)
+    /// <param name="retryInterval">
+    /// How often bound peers without a connection (offline, not yet advertised, or a failed handshake)
+    /// are tried again; <see cref="DefaultRetryInterval"/> when null.
+    /// </param>
+    /// <param name="timeProvider">The clock of the retry timer.</param>
+    public BindingConnectionManager(
+        MatterNodeHost host, BindingCluster binding, IOperationalPeerResolver resolver,
+        TimeSpan? retryInterval = null, TimeProvider? timeProvider = null)
+        : this((host ?? throw new ArgumentNullException(nameof(host))).ConnectAsync, binding, resolver, retryInterval, timeProvider)
     {
-        _host = host ?? throw new ArgumentNullException(nameof(host));
+    }
+
+    // The connection seam: tests drive the binding and retry logic without a host bound to UDP 5540.
+    internal BindingConnectionManager(
+        Func<FabricIndex, NodeId, System.Net.IPEndPoint, CancellationToken, Task<MatterNodeConnection>> connect,
+        BindingCluster binding, IOperationalPeerResolver resolver,
+        TimeSpan? retryInterval = null, TimeProvider? timeProvider = null)
+    {
+        _connect = connect ?? throw new ArgumentNullException(nameof(connect));
         _binding = binding ?? throw new ArgumentNullException(nameof(binding));
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+        _retryInterval = retryInterval ?? DefaultRetryInterval;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_retryInterval, TimeSpan.Zero, nameof(retryInterval));
     }
 
     /// <summary>The peers this manager currently holds a live connection to.</summary>
@@ -75,6 +101,7 @@ public sealed class BindingConnectionManager : IAsyncDisposable
         _started = true;
         _binding.BindingsChanged += OnBindingsChanged;
         await ReconcileAsync(cancellationToken).ConfigureAwait(false);
+        _retryLoop = RetryLoopAsync();
     }
 
     /// <summary>Returns the live connection to <paramref name="peer"/>, or <see langword="null"/> if none is established.</summary>
@@ -93,11 +120,46 @@ public sealed class BindingConnectionManager : IAsyncDisposable
         _ = ReconcileSafelyAsync();
     }
 
+    // A peer that couldn't be resolved or reached is tried again on a timer, not only on the next
+    // Binding write: a bound device that was offline when the binding was written connects once it's back.
+    private async Task RetryLoopAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(_retryInterval, _timeProvider);
+            while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false))
+            {
+                if (HasUnconnectedPeers())
+                {
+                    await ReconcileSafelyAsync().ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            // Disposed.
+        }
+    }
+
+    private bool HasUnconnectedPeers()
+    {
+        var desired = DistinctUnicastPeers();
+        lock (_connections)
+        {
+            return desired.Any(peer => !_connections.ContainsKey(peer));
+        }
+    }
+
     private async Task ReconcileSafelyAsync()
     {
         try
         {
             await ReconcileAsync(_lifetime.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!_lifetime.IsCancellationRequested)
+        {
+            // Never fault the retry loop or a fire-and-forget reconcile: the next one tries again.
+            MatterTrace.WriteError(() => $"[bindings] reconcile failed: {ex.GetType().Name}: {ex.Message}");
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException && _lifetime.IsCancellationRequested)
         {
@@ -153,7 +215,18 @@ public sealed class BindingConnectionManager : IAsyncDisposable
 
     private async Task TryConnectAsync(OperationalPeer peer, CancellationToken cancellationToken)
     {
-        var endpoint = await _resolver.ResolveAsync(peer, cancellationToken).ConfigureAwait(false);
+        System.Net.IPEndPoint? endpoint;
+        try
+        {
+            endpoint = await _resolver.ResolveAsync(peer, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            // One peer's resolver failure must not abort reconciling the others.
+            MatterTrace.WriteError(() => $"[bindings] resolving {peer} failed: {ex.GetType().Name}: {ex.Message}");
+            return;
+        }
+
         if (endpoint is null)
         {
             // The peer is not currently locatable; leave it for a later reconcile.
@@ -163,12 +236,14 @@ public sealed class BindingConnectionManager : IAsyncDisposable
         MatterNodeConnection connection;
         try
         {
-            connection = await _host.ConnectAsync(peer.FabricIndex, peer.NodeId, endpoint, cancellationToken)
+            connection = await _connect(peer.FabricIndex, peer.NodeId, endpoint, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is InteractionModelException or TimeoutException or InvalidOperationException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            // A handshake/authentication failure to one peer must not abort reconciling the others.
+            // A handshake, authentication or network failure (a SocketException for an unroutable
+            // address) to one peer must not abort reconciling the others.
+            MatterTrace.WriteError(() => $"[bindings] connecting to {peer} at {endpoint} failed: {ex.GetType().Name}: {ex.Message}");
             return;
         }
 
@@ -232,6 +307,15 @@ public sealed class BindingConnectionManager : IAsyncDisposable
         _disposed = true;
         _binding.BindingsChanged -= OnBindingsChanged;
         await _lifetime.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await _retryLoop.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The loop catches everything itself; never let it keep the connections below open.
+            MatterTrace.WriteError(() => $"[bindings] retry loop ended with {ex.GetType().Name}: {ex.Message}");
+        }
 
         OperationalPeer[] peers;
         lock (_connections)

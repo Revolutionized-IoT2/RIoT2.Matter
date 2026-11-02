@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using RIoT2.Matter.DataModel;
@@ -28,26 +28,44 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
     private readonly ICaseCryptoProvider _crypto;
     private readonly IFabricStore _fabrics;
     private readonly Func<ushort> _allocateSessionId;
+    private readonly Action<ushort>? _releaseSessionId;
+    private readonly TimeProvider _timeProvider;
+
+    /// <summary>
+    /// How long a responder waits for Sigma3 (or the resumption StatusReport) before it gives the
+    /// handshake up, closing its exchange and releasing its session id.
+    /// </summary>
+    public static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(30);
     private readonly ICaseResumptionStore? _resumptionStore;
     private readonly ConcurrentDictionary<ExchangeContext, CaseHandshakeState> _handshakes = new();
 
     /// <param name="crypto">The CASE crypto engine factory.</param>
     /// <param name="fabrics">The store of commissioned fabrics used to match Sigma1.</param>
     /// <param name="allocateSessionId">
-    /// Allocates a unique responder session id. TODO: source this from the session manager so the id
-    /// is reserved for the installed secure session.
+    /// Reserves a unique responder session id (<see cref="Messaging.SessionManager.AllocateSessionId"/>).
+    /// A <see cref="Messaging.SessionTableFullException"/> answers the Sigma1 with Busy.
     /// </param>
     /// <param name="resumptionStore">
     /// Optional store of prior-session resumption records. When supplied, a Sigma1 that offers a valid
     /// resumption completes via Sigma2_Resume (spec §4.14.2.6); when <see langword="null"/> or the offer
     /// cannot be honoured, a full handshake runs instead.
     /// </param>
+    /// <param name="releaseSessionId">
+    /// Releases the reserved id of a handshake that ends without a session (it failed, its exchange
+    /// closed, or it took longer than <see cref="HandshakeTimeout"/>), so abandoned handshakes don't use up
+    /// the session table (backlog item 8, I43).
+    /// </param>
+    /// <param name="timeProvider">The clock of <see cref="HandshakeTimeout"/>.</param>
     public CaseServer(
         ICaseCryptoProvider crypto,
         IFabricStore fabrics,
         Func<ushort> allocateSessionId,
-        ICaseResumptionStore? resumptionStore = null)
+        ICaseResumptionStore? resumptionStore = null,
+        Action<ushort>? releaseSessionId = null,
+        TimeProvider? timeProvider = null)
     {
+        _releaseSessionId = releaseSessionId;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _crypto = crypto ?? throw new ArgumentNullException(nameof(crypto));
         _fabrics = fabrics ?? throw new ArgumentNullException(nameof(fabrics));
         _allocateSessionId = allocateSessionId ?? throw new ArgumentNullException(nameof(allocateSessionId));
@@ -77,6 +95,11 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
     {
         if (_handshakes.TryRemove(exchange, out var state))
         {
+            if (state.Phase != CaseSessionPhase.Established)
+            {
+                _releaseSessionId?.Invoke(state.LocalSessionId);
+            }
+
             state.Dispose();
         }
     }
@@ -85,6 +108,7 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
     {
         // A duplicate Sigma1 on an in-flight exchange restarts the handshake cleanly.
         OnExchangeClosed(exchange);
+        ExpireStaleHandshakes();
 
         if (!TryParseSigma1(message.ApplicationPayload.Span, out var sigma1))
         {
@@ -132,9 +156,53 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
             await FailAsync(exchange, SecureChannelStatusCode.InvalidParameter, cancellationToken).ConfigureAwait(false);
             return;
         }
+        catch (Messaging.SessionTableFullException)
+        {
+            // Too many handshakes in flight: the initiator retries later (spec §4.11.1.4, Busy).
+            context?.Dispose();
+            try
+            {
+                await SecureChannelHandler.SendStatusReportAsync(
+                    exchange, GeneralStatusCode.Busy, SecureChannelStatusCode.Busy, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                exchange.Close();
+            }
 
-        _handshakes[exchange] = new CaseHandshakeState(context, fabric.FabricIndex, sigma1.InitiatorSessionId, localSessionId, sigma1.InitiatorSessionParams);
-        await exchange.SendAsync((byte)SecureChannelOpcode.CaseSigma2, sigma2Payload, reliable: true, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        _handshakes[exchange] = new CaseHandshakeState(context, fabric.FabricIndex, sigma1.InitiatorSessionId, localSessionId, sigma1.InitiatorSessionParams)
+        {
+            StartedAt = _timeProvider.GetTimestamp(),
+        };
+        try
+        {
+            await exchange.SendAsync((byte)SecureChannelOpcode.CaseSigma2, sigma2Payload, reliable: true, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Not sent, so no retransmission will ever close the exchange: give the handshake up now.
+            exchange.Close();
+            OnExchangeClosed(exchange);
+            throw;
+        }
+    }
+
+    // A handshake whose initiator went quiet after acknowledging Sigma2 never ends on its own; give it up
+    // after HandshakeTimeout so its session id is released.
+    private void ExpireStaleHandshakes()
+    {
+        foreach (var (exchange, state) in _handshakes)
+        {
+            if (state.Phase != CaseSessionPhase.Established &&
+                _timeProvider.GetElapsedTime(state.StartedAt) >= HandshakeTimeout)
+            {
+                exchange.Close();
+                OnExchangeClosed(exchange);
+            }
+        }
     }
 
     /// <summary>
@@ -287,10 +355,16 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
             state.Phase = CaseSessionPhase.Failed;
         }
 
-        await SecureChannelHandler.SendStatusReportAsync(
-            exchange, GeneralStatusCode.Failure, statusCode, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        OnExchangeClosed(exchange);
+        try
+        {
+            await SecureChannelHandler.SendStatusReportAsync(
+                exchange, GeneralStatusCode.Failure, statusCode, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            OnExchangeClosed(exchange);
+            exchange.Close();
+        }
     }
 
     private bool TryResolveFabric(ReadOnlySpan<byte> destinationId, ReadOnlySpan<byte> initiatorRandom, out ResolvedFabric resolved)
@@ -449,6 +523,9 @@ public sealed class CaseServer : ISessionEstablishmentDelegate
 
     private sealed class CaseHandshakeState : IDisposable
     {
+        /// <summary>When the handshake started (<see cref="TimeProvider.GetTimestamp"/>), for <see cref="HandshakeTimeout"/>.</summary>
+        public long StartedAt { get; init; }
+
         public CaseHandshakeState(
             ICaseResponderContext context,
             FabricIndex fabricIndex,

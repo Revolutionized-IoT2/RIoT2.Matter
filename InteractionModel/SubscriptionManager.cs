@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using RIoT2.Matter.DataModel;
 using RIoT2.Matter.Messaging;
+using System.Security.Cryptography;
 
 namespace RIoT2.Matter.InteractionModel;
 
@@ -13,7 +14,7 @@ public sealed class SubscriptionManager
     private readonly ConcurrentDictionary<uint, Subscription> _subscriptions = new();
 
     // The spec recommends a random initial subscription id; it then increments (0 is reserved).
-    private int _nextId = Random.Shared.Next(1, int.MaxValue);
+    private int _nextId = RandomNumberGenerator.GetInt32(1, int.MaxValue);
 
     /// <summary>Creates and registers a subscription, allocating its id via <paramref name="factory"/>.</summary>
     public Subscription Add(Func<uint, Subscription> factory)

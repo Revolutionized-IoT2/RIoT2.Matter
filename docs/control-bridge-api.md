@@ -19,7 +19,7 @@ Reused core types:
 
 | Type | Namespace | Role |
 | --- | --- | --- |
-| `IOperationalPeerResolver` | `RIoT2.Matter.Hosting` | Resolves a bound peer's operational `IPEndPoint`. |
+| `IOperationalPeerResolver` | `RIoT2.Matter.Hosting` | Resolves a bound peer's operational `IPEndPoint`; `DnsSdOperationalPeerResolver` is the DNS-SD one. |
 | `OperationalPeer` | `RIoT2.Matter.Hosting` | `(FabricIndex, NodeId)` key for an operational CASE session. |
 | `MatterNodeConnection` | `RIoT2.Matter.Hosting` | Established operational session handle. |
 | `SetupPayload` | `RIoT2.Matter.Onboarding` | Logical onboarding payload. |
@@ -226,6 +226,8 @@ internal sealed class SimulatedLampAdapter(SimulatedLamp lamp) : IBridgedDeviceA
 }
 ```
 
-The `[p]` key works only after a commissioner has written Binding entries and the host supplies an
-`IOperationalPeerResolver` that can resolve those peers. The parameterless `Create(settings)` overload
-tracks bindings but cannot open outbound sessions.
+The `[p]` key works only after a commissioner has written Binding entries and the bound peers can
+be resolved. The parameterless `Create(settings)` overload resolves them through DNS-SD
+(`DnsSdOperationalPeerResolver`, since 1.1.0: their `<compressed-fabric-id>-<node-id>._matter._tcp`
+instance); pass another `IOperationalPeerResolver` for a static map. Peers without a connection are
+tried again every 30 seconds.

@@ -205,6 +205,9 @@ public sealed class ExchangeContext
     }
 
     /// <summary>Closes the exchange, clearing MRP state and notifying the handler.</summary>
+    /// <summary>True once <see cref="Close"/> ran.</summary>
+    internal bool IsClosed => Volatile.Read(ref _closed);
+
     public void Close()
     {
         if (_closed)

@@ -8,11 +8,11 @@ namespace RIoT2.Matter.Crypto;
 /// and CASE cryptography. See the Matter Core Specification, section 3.5.
 /// </summary>
 /// <remarks>
-/// A portable, managed implementation built on <see cref="BigInteger"/>, intended for the
-/// low-frequency operations of session establishment. NOTE: the arithmetic is not constant-time,
-/// so secret-dependent scalar multiplications may be observable via timing. TODO: harden scalar
-/// multiplication (e.g. a Montgomery ladder with constant-time selects) before relying on this in
-/// adversarial timing environments.
+/// The point operations (<see cref="Negate"/>, <see cref="Double"/>, <see cref="Add"/>,
+/// <see cref="Multiply"/>) run in <see cref="P256ConstantTime"/>: fixed limbs, complete projective
+/// formulas and a Montgomery ladder, with no branch or memory access that depends on a secret
+/// (backlog S10, I43). The <see cref="BigInteger"/> helpers here (<see cref="Mod"/>,
+/// <see cref="InvMod"/>, <see cref="IsOnCurve"/>, <see cref="DecodePoint"/>) handle public values.
 /// </remarks>
 public static class P256Curve
 {
@@ -61,47 +61,15 @@ public static class P256Curve
     public static BigInteger InvMod(BigInteger value) => BigInteger.ModPow(Mod(value), P - 2, P);
 
     /// <summary>Negates a point: (x, y) → (x, -y).</summary>
-    public static EcPoint Negate(EcPoint p) => p.IsInfinity ? p : new EcPoint(p.X, Mod(-p.Y));
+    public static EcPoint Negate(EcPoint p) => P256ConstantTime.Negate(p);
 
     /// <summary>Doubles a point.</summary>
-    public static EcPoint Double(EcPoint p)
-    {
-        if (p.IsInfinity || p.Y.IsZero)
-        {
-            return EcPoint.Infinity;
-        }
+    public static EcPoint Double(EcPoint p) => P256ConstantTime.Add(p, p);
 
-        var lambda = Mod((3 * p.X * p.X + A) * InvMod(2 * p.Y));
-        var x = Mod(lambda * lambda - 2 * p.X);
-        var y = Mod(lambda * (p.X - x) - p.Y);
-        return new EcPoint(x, y);
-    }
+    /// <summary>Adds two points; the identity and P + (-P) need no special case.</summary>
+    public static EcPoint Add(EcPoint p, EcPoint q) => P256ConstantTime.Add(p, q);
 
-    /// <summary>Adds two points.</summary>
-    public static EcPoint Add(EcPoint p, EcPoint q)
-    {
-        if (p.IsInfinity)
-        {
-            return q;
-        }
-
-        if (q.IsInfinity)
-        {
-            return p;
-        }
-
-        if (p.X == q.X)
-        {
-            return Mod(p.Y + q.Y).IsZero ? EcPoint.Infinity : Double(p);
-        }
-
-        var lambda = Mod((q.Y - p.Y) * InvMod(q.X - p.X));
-        var x = Mod(lambda * lambda - p.X - q.X);
-        var y = Mod(lambda * (p.X - x) - p.Y);
-        return new EcPoint(x, y);
-    }
-
-    /// <summary>Computes the scalar multiple k·P using double-and-add.</summary>
+    /// <summary>Computes the scalar multiple k·P (k reduced modulo <see cref="Order"/>) with a Montgomery ladder.</summary>
     public static EcPoint Multiply(BigInteger k, EcPoint p)
     {
         if (k.Sign < 0)
@@ -109,20 +77,7 @@ public static class P256Curve
             throw new ArgumentOutOfRangeException(nameof(k), "Scalar must be non-negative.");
         }
 
-        var result = EcPoint.Infinity;
-        var addend = p;
-        while (k.Sign > 0)
-        {
-            if (!k.IsEven)
-            {
-                result = Add(result, addend);
-            }
-
-            addend = Double(addend);
-            k >>= 1;
-        }
-
-        return result;
+        return P256ConstantTime.Multiply(k, p);
     }
 
     /// <summary>Returns true when the point lies on the curve and is not the identity.</summary>

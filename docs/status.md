@@ -35,7 +35,8 @@ their subproject roadmap files because they still match the current project stru
 - Optional Aggregator endpoint (`0x000E`) for bridged non-Matter devices.
 - Dynamic bridged endpoint add/remove with hardened lifecycle semantics.
 - QR and manual pairing code generation from the same `PaseProvisioning` bundle.
-- Binding-driven outbound connection manager with pluggable `IOperationalPeerResolver`.
+- Binding-driven outbound connection manager, retrying unconnected peers, with DNS-SD peer resolution
+  (`DnsSdOperationalPeerResolver`) or any other `IOperationalPeerResolver`.
 
 ## Implemented in Controller and UI
 
@@ -73,15 +74,13 @@ code contains matching services, stores, routes and views:
 
 ## Security and reliability backlog
 
-- [Backlog item 8](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/backlog/open-issues.md):
-  the unsecured/session growth part remains relevant. The CASE-resumption-disabled wording is stale;
-  code now contains `ManagedCaseResumptionStore` and Sigma2_Resume handling.
-- [S10](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/backlog/optional-hardening.md):
-  managed P-256 arithmetic is not constant-time, and some session/instance ids still use
-  `Random.Shared`.
-- [A7](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/architecture/target.md#a7-finish-the-matter-integration):
-  remaining orchestrator integration work is operational DNS-SD peer resolution, stable endpoint id
-  checks and splitting the oversized bridge service.
+- Done in 1.1.0 ([I43](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/increments/phase-3-4.md#i43-matter-completion-m)): the session table (`MaxSessions`, least-recently-used eviction), handshakes
+  in flight (30 s handshake timeout), unsecured peers and exchanges, and DNS-SD instances are bounded
+  (backlog item 8); PASE point
+  arithmetic is constant-time and guessable ids come from `RandomNumberGenerator` (S10); outbound
+  bindings resolve peers through DNS-SD (ADR 0010).
+- Still open: CASE resumption records are in memory only, and resumption is not offered as a
+  responder (resumed sessions failed to decrypt against real controllers).
 
 ## Security notes
 

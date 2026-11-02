@@ -135,16 +135,26 @@ The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBrid
 - `Controller/appsettings.json` contains development defaults, including a concrete credential
   protection value. Do not copy it into documentation or production configuration; use a secret
   provider with a stable deployment-specific value.
-- `ControlBridgeService.Create(settings)` tracks Binding entries but uses an unresolved peer resolver.
-  Supply an `IOperationalPeerResolver` to open outbound CASE sessions to bound nodes.
-- `ControlBridgeService` uses `Random.Shared.NextInt64()` for the commissionable instance id. The
-  OnOff sample derives stable ids from the serial number instead.
-- `SessionManager` allocates local secure session ids with `Random.Shared` and has no maximum session
-  count beyond the 16-bit id space. This is the remaining part of backlog item 8/S10.
+- `ControlBridgeService.Create(settings)` resolves bound peers through DNS-SD
+  (`DnsSdOperationalPeerResolver`, 1.1.0), which opens its mDNS socket at the first resolve.
+  `BindingConnectionManager` retries a bound peer without a connection every 30 s.
+- Ids that a peer must not guess (session, exchange, subscription, commissionable instance, host,
+  data version) come from `RandomNumberGenerator` (S10). Only the MRP retransmission jitter uses
+  `Random.Shared`; keep it that way.
+- Tables an unauthenticated peer can grow are bounded (backlog item 8): `SessionManager`
+  (`MaxSessions` with least-recently-used eviction, `MaxPendingHandshakes` with
+  `SessionTableFullException`, answered Busy), the unsecured peers in `InboundMessageDispatcher`, the
+  unsecured responder exchanges in `ExchangeManager`, and the instances and hosts of
+  `MdnsBrowseResolver`. A new table keyed by peer input needs a bound too. A responder handshake or
+  exchange that a peer can stall needs an end: `CaseServer` gives up after `HandshakeTimeout` and
+  releases the reserved id; terminal replies close their exchange.
 - CASE resumption is implemented with `ManagedCaseResumptionStore`, but records are in memory only.
   Restarting a host loses resumption state and requires a full CASE handshake.
-- `Spake2Plus` / `P256` are pure managed reference implementations and explicitly not constant-time.
-  This preserves portability but is not hardened operational crypto.
+- PASE (SPAKE2+) multiplies with secret scalars through `P256Curve`, whose point operations run in
+  `P256ConstantTime` (fixed limbs, complete formulas, Montgomery ladder; `P256ConstantTimeTests`
+  checks it against the platform's P-256 and the reference). Never add a branch or a table index on
+  secret data there. `Spake2Plus` / `P256` are the `BigInteger` reference for the KAT harness only.
+  CASE uses the platform's ECDH and ECDSA.
 - The OnOff sample now hosts a dimmable light (`LightingProfile.DimmableLight`) and includes
   brightness controls even though the project name is still `OnOffSample`.
 - The Controller UI's `npm run build` already runs `vue-tsc`; run `npm test` separately. The `lint`
@@ -154,10 +164,8 @@ The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBrid
 
 - [A7 Finish the Matter integration](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/architecture/target.md#a7-finish-the-matter-integration):
   orchestrator bridge status and remaining integration work.
-- [Backlog item 8](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/backlog/open-issues.md):
-  unsecured peer/session growth and stale CASE-resumption wording.
-- [S10](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/backlog/optional-hardening.md):
-  constant-time crypto and random id hardening.
+- [I43](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/increments/phase-3-4.md#i43-matter-completion-m): bounded peer and session tables (backlog item 8), constant-time PASE arithmetic and random
+  ids (S10), DNS-SD peer resolution for outbound bindings (ADR 0010).
 - [Matter feature ideas](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/features.md#integrations):
   additional device types, BLE/NFC/UDC commissioning, OTA provider and controller mode.
 - [M3](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/plans/m03-split-oversized-classes.md):

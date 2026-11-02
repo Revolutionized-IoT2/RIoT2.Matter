@@ -1,4 +1,5 @@
 ﻿using RIoT2.Matter.Clusters;
+using RIoT2.Matter.Diagnostics;
 using RIoT2.Matter.Messaging;
 using RIoT2.Matter.SecureChannel.Pase;
 
@@ -92,10 +93,23 @@ public sealed class CommissioningPaseResponder : ISessionEstablishmentDelegate, 
             ? $"[pase] {opcode} received but NO window open → rejecting with Busy."
             : $"[pase] {opcode} received; dispatching to active session.");
 
-        // No commissioning window is open: the node is not accepting PASE, so reject with Busy.
+        // No commissioning window is open: the node is not accepting PASE, so reject with Busy and close.
         return active is null
-            ? SecureChannelHandler.SendStatusReportAsync(exchange, GeneralStatusCode.Busy, SecureChannelStatusCode.Busy, cancellationToken: cancellationToken)
+            ? RejectBusyAsync(exchange, cancellationToken)
             : active.OnMessageAsync(exchange, opcode, message, cancellationToken);
+    }
+
+    private static async ValueTask RejectBusyAsync(ExchangeContext exchange, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SecureChannelHandler.SendStatusReportAsync(
+                exchange, GeneralStatusCode.Busy, SecureChannelStatusCode.Busy, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            exchange.Close();
+        }
     }
 
     /// <inheritdoc />
@@ -119,7 +133,20 @@ public sealed class CommissioningPaseResponder : ISessionEstablishmentDelegate, 
             return;
         }
 
-        var sessionId = _sessions.AllocateSessionId();
+        ushort sessionId;
+        try
+        {
+            // The window's one reserved id isn't counted against the CASE handshakes in flight.
+            sessionId = _sessions.AllocateSessionId(ignorePendingLimit: true);
+        }
+        catch (SessionTableFullException)
+        {
+            // Too many CASE handshakes in flight: this window can't take a PASE session, and the
+            // commissioner's PBKDFParamRequest is answered Busy as if no window were open.
+            MatterTrace.WriteError(() => "[pase] commissioning window opened while the session table is full; PASE is refused.");
+            return;
+        }
+
         var pase = new PaseSession(_crypto, verifier, pbkdf, sessionId);
         _installer.Attach(pase);
 

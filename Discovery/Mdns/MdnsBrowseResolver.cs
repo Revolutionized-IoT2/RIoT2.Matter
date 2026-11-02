@@ -12,7 +12,9 @@ namespace RIoT2.Matter.Discovery.Mdns;
 /// <remarks>
 /// This is the composition root for discovery: it owns and disposes the supplied
 /// <see cref="IMdnsInterface"/>. Records accumulate for the resolver's lifetime; goodbye packets
-/// (TTL 0) for an instance's SRV/PTR remove it.
+/// (TTL 0) for an instance's SRV/PTR remove it. Anyone on the link can send mDNS responses, so the
+/// tables are bounded (I43): at most <see cref="MaxInstances"/> instances and <see cref="MaxHosts"/>
+/// hosts (the oldest is forgotten first) and <see cref="MaxAddressesPerHost"/> addresses per host.
 /// </remarks>
 public sealed class MdnsBrowseResolver : IAsyncDisposable
 {
@@ -20,8 +22,18 @@ public sealed class MdnsBrowseResolver : IAsyncDisposable
     private readonly object _sync = new();
     private readonly HashSet<DnsSdServiceType> _browsedTypes = [];
     private readonly Dictionary<DnsName, InstanceState> _instances = [];
-    private readonly Dictionary<DnsName, HashSet<IPAddress>> _hostAddresses = [];
+    private readonly Dictionary<DnsName, HostState> _hostAddresses = [];
+    private long _sequence;
     private bool _disposed;
+
+    /// <summary>The most service instances remembered at once.</summary>
+    public const int MaxInstances = 256;
+
+    /// <summary>The most host names remembered at once.</summary>
+    public const int MaxHosts = 256;
+
+    /// <summary>The most addresses remembered per host name.</summary>
+    public const int MaxAddressesPerHost = 16;
 
     public MdnsBrowseResolver(IMdnsInterface iface)
     {
@@ -77,6 +89,31 @@ public sealed class MdnsBrowseResolver : IAsyncDisposable
         {
             Flags = DnsFlags.MulticastQuery,
             Questions = [new DnsQuestion { Name = serviceType.ServiceName, Type = DnsRecordType.Ptr }],
+        };
+
+        await _iface.SendMulticastAsync(query.ToArray(), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Queries one instance directly (SRV, TXT and addresses) instead of browsing every instance of its
+    /// type, for example an operational peer named <c>&lt;compressed-fabric-id&gt;-&lt;node-id&gt;</c>.
+    /// The result arrives through <see cref="ServiceDiscovered"/> and <see cref="DiscoveredServices"/>.
+    /// </summary>
+    public async ValueTask ResolveInstanceAsync(DnsSdServiceType serviceType, string instanceLabel, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(instanceLabel);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        lock (_sync)
+        {
+            _browsedTypes.Add(serviceType);
+        }
+
+        IReadOnlyList<string> service = serviceType.ServiceName.Labels;
+        var query = new DnsMessage
+        {
+            Flags = DnsFlags.MulticastQuery,
+            Questions = [new DnsQuestion { Name = new DnsName([instanceLabel, .. service]), Type = DnsRecordType.Any }],
         };
 
         await _iface.SendMulticastAsync(query.ToArray(), cancellationToken).ConfigureAwait(false);
@@ -196,24 +233,30 @@ public sealed class MdnsBrowseResolver : IAsyncDisposable
 
     private void UpdateAddress(DnsName host, IPAddress address, uint ttl)
     {
-        if (!_hostAddresses.TryGetValue(host, out HashSet<IPAddress>? set))
+        if (!_hostAddresses.TryGetValue(host, out HostState? state))
         {
             if (ttl == 0)
             {
                 return;
             }
 
-            set = [];
-            _hostAddresses[host] = set;
+            if (_hostAddresses.Count >= MaxHosts)
+            {
+                _hostAddresses.Remove(_hostAddresses.MinBy(entry => entry.Value.Sequence).Key);
+            }
+
+            state = new HostState();
+            _hostAddresses[host] = state;
         }
 
+        state.Sequence = ++_sequence;
         if (ttl == 0)
         {
-            set.Remove(address);
+            state.Addresses.Remove(address);
         }
-        else
+        else if (state.Addresses.Count < MaxAddressesPerHost)
         {
-            set.Add(address);
+            state.Addresses.Add(address);
         }
     }
 
@@ -221,10 +264,16 @@ public sealed class MdnsBrowseResolver : IAsyncDisposable
     {
         if (!_instances.TryGetValue(instanceName, out InstanceState? state))
         {
+            if (_instances.Count >= MaxInstances)
+            {
+                _instances.Remove(_instances.MinBy(entry => entry.Value.Sequence).Key);
+            }
+
             state = new InstanceState { ServiceType = serviceType, InstanceLabel = label };
             _instances[instanceName] = state;
         }
 
+        state.Sequence = ++_sequence;
         return state;
     }
 
@@ -243,12 +292,12 @@ public sealed class MdnsBrowseResolver : IAsyncDisposable
             return;
         }
 
-        if (!_hostAddresses.TryGetValue(host, out HashSet<IPAddress>? set) || set.Count == 0)
+        if (!_hostAddresses.TryGetValue(host, out HostState? hostState) || hostState.Addresses.Count == 0)
         {
             return;
         }
 
-        IPAddress[] addresses = [.. set.OrderBy(a => a.ToString(), StringComparer.Ordinal)];
+        IPAddress[] addresses = [.. hostState.Addresses.OrderBy(a => a.ToString(), StringComparer.Ordinal)];
         var service = new DiscoveredService
         {
             ServiceType = state.ServiceType,
@@ -347,5 +396,14 @@ public sealed class MdnsBrowseResolver : IAsyncDisposable
         public DiscoveredService? Published { get; set; }
 
         public string? Signature { get; set; }
+
+        public long Sequence { get; set; }
+    }
+
+    private sealed class HostState
+    {
+        public HashSet<IPAddress> Addresses { get; } = [];
+
+        public long Sequence { get; set; }
     }
 }

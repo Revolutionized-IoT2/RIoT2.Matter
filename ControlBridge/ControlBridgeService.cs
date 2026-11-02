@@ -6,6 +6,7 @@ using RIoT2.Matter.Hosting;
 using RIoT2.Matter.InteractionModel;
 using RIoT2.Matter.SecureChannel.Pase;
 using Bridge = RIoT2.Matter.Clusters.ControlBridge;
+using System.Security.Cryptography;
 
 namespace RIoT2.Matter.ControlBridge;
 
@@ -26,10 +27,9 @@ namespace RIoT2.Matter.ControlBridge;
 /// await service.InvokeAsync(new OperationalPeer(fabricIndex, peerNodeId),
 ///     new EndpointId(1), OnOffCluster.ClusterId, new CommandId(0x02)); // Toggle
 /// </code>
-/// Peer endpoint resolution is pending DNS-SD operational discovery, so supply an
-/// <see cref="IOperationalPeerResolver"/> (a static map or a custom resolver) via
-/// <see cref="Create(ControlBridgeSettings, IOperationalPeerResolver)"/>; the default resolver reports
-/// every peer as unresolvable, so bindings are tracked but no session is opened until one is provided.
+/// Bound peers are located through DNS-SD operational discovery (<see cref="DnsSdOperationalPeerResolver"/>,
+/// ADR 0010) by default; <see cref="Create(ControlBridgeSettings, IOperationalPeerResolver)"/> takes another
+/// <see cref="IOperationalPeerResolver"/>, for example a static map.
 /// </remarks>
 public sealed class ControlBridgeService : IAsyncDisposable
 {
@@ -37,6 +37,7 @@ public sealed class ControlBridgeService : IAsyncDisposable
     private readonly MatterNodeHost _host;
     private readonly BindingConnectionManager _connections;
     private readonly IOperationalPeerResolver _resolver;
+    private readonly bool _ownsResolver;
     private readonly AggregatorEndpoint? _aggregator;
 
     private bool _started;
@@ -47,6 +48,7 @@ public sealed class ControlBridgeService : IAsyncDisposable
         MatterNodeHost host,
         BindingConnectionManager connections,
         IOperationalPeerResolver resolver,
+        bool ownsResolver,
         ControlBridgeOnboarding onboarding,
         AggregatorEndpoint? aggregator)
     {
@@ -54,6 +56,7 @@ public sealed class ControlBridgeService : IAsyncDisposable
         _host = host;
         _connections = connections;
         _resolver = resolver;
+        _ownsResolver = ownsResolver;
         Onboarding = onboarding;
         _aggregator = aggregator;
     }
@@ -91,8 +94,21 @@ public sealed class ControlBridgeService : IAsyncDisposable
     /// <param name="resolver">Resolves each unicast peer's operational IP endpoint for outbound CASE.</param>
     public static ControlBridgeService Create(ControlBridgeSettings settings, IOperationalPeerResolver resolver)
     {
-        ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(resolver);
+        return Create(settings, _ => resolver, ownsResolver: false);
+    }
+
+    /// <summary>
+    /// Composes a Control Bridge service that locates bound peers through DNS-SD
+    /// (<see cref="DnsSdOperationalPeerResolver"/> on the bridge's own fabric table); the service disposes it.
+    /// </summary>
+    public static ControlBridgeService Create(ControlBridgeSettings settings) =>
+        Create(settings, bridge => DnsSdOperationalPeerResolver.ForFabrics(bridge.Commissioning.Manager), ownsResolver: true);
+
+    private static ControlBridgeService Create(
+        ControlBridgeSettings settings, Func<Bridge, IOperationalPeerResolver> createResolver, bool ownsResolver)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
 
         // One provisioning bundle feeds both the onboarding codes and the on-device SPAKE2+ verifier, so
         // the scanned passcode and the installed verifier can never diverge.
@@ -119,7 +135,7 @@ public sealed class ControlBridgeService : IAsyncDisposable
         // a controller that scanned the code resolves this instance. The host owns the commissioning Mode.
         var commissionable = new CommissionableServiceInfo
         {
-            InstanceId = (ulong)Random.Shared.NextInt64(),
+            InstanceId = BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(sizeof(ulong))), // S10
             Discriminator = settings.Discriminator,
             Mode = CommissioningMode.Disabled,
             VendorId = settings.Information.VendorId,
@@ -145,17 +161,10 @@ public sealed class ControlBridgeService : IAsyncDisposable
             aggregator = AggregatorEndpoint.AddTo(bridge.Node, aggregatorEndpointId);
         }
 
+        var resolver = createResolver(bridge);
         var connections = bridge.CreateConnectionManager(host, resolver);
-        return new ControlBridgeService(bridge, host, connections, resolver, onboarding, aggregator);
+        return new ControlBridgeService(bridge, host, connections, resolver, ownsResolver, onboarding, aggregator);
     }
-
-    /// <summary>
-    /// Composes a Control Bridge service that tracks bindings but opens no sessions until an operational
-    /// resolver is available. Prefer <see cref="Create(ControlBridgeSettings, IOperationalPeerResolver)"/>
-    /// with a real resolver once DNS-SD operational discovery is wired.
-    /// </summary>
-    public static ControlBridgeService Create(ControlBridgeSettings settings) =>
-        Create(settings, UnresolvedPeerResolver.Instance);
 
     /// <summary>Starts the host (transport, Secure Channel, Interaction Model, DNS-SD) and the binding-driven connection manager.</summary>
     /// <exception cref="InvalidOperationException">The service has already been started.</exception>
@@ -259,17 +268,12 @@ public sealed class ControlBridgeService : IAsyncDisposable
         }
 
         await _connections.DisposeAsync().ConfigureAwait(false);
+        if (_ownsResolver && _resolver is IAsyncDisposable disposable)
+        {
+            await disposable.DisposeAsync().ConfigureAwait(false);
+        }
+
         await _host.DisposeAsync().ConfigureAwait(false);
         _bridge.Dispose();
-    }
-
-    // The default resolver used when no operational discovery is available yet: every peer is reported
-    // unresolvable, so the connection manager tracks bindings but opens no session (see ConnectAsync TODO).
-    private sealed class UnresolvedPeerResolver : IOperationalPeerResolver
-    {
-        public static readonly UnresolvedPeerResolver Instance = new();
-
-        public ValueTask<IPEndPoint?> ResolveAsync(OperationalPeer peer, CancellationToken cancellationToken = default) =>
-            new((IPEndPoint?)null);
     }
 }

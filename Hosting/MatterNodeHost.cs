@@ -11,6 +11,7 @@ using RIoT2.Matter.SecureChannel;
 using RIoT2.Matter.SecureChannel.Case;
 using RIoT2.Matter.SecureChannel.Pase;
 using RIoT2.Matter.Transport;
+using System.Security.Cryptography;
 
 namespace RIoT2.Matter.Hosting;
 
@@ -106,7 +107,7 @@ public sealed class MatterNodeHost : IAsyncDisposable
         _provisioning = provisioning ?? throw new ArgumentNullException(nameof(provisioning));
         _commissionable = commissionable ?? throw new ArgumentNullException(nameof(commissionable));
         _commissioningWindowSeconds = commissioningWindowSeconds;
-        _hostId = hostId ?? (ulong)Random.Shared.NextInt64();
+        _hostId = hostId ?? BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(sizeof(ulong)));
         _diagnostics = diagnostics ?? RIoT2.Matter.Diagnostics.NullMatterDiagnostics.Instance;
         if (diagnostics is not null)
         {
@@ -142,7 +143,7 @@ public sealed class MatterNodeHost : IAsyncDisposable
 
         // CASE server: establishes operational sessions with commissioned controllers. The same crypto
         // provider and resumption store back the CASE initiator used by ConnectAsync.
-        _caseServer = new CaseServer(_caseCrypto, _commissioning.Manager, _sessions.AllocateSessionId, _caseResumption);
+        _caseServer = new CaseServer(_caseCrypto, _commissioning.Manager, _sessions.AllocateSessionId, _caseResumption, _sessions.ReleaseSessionId);
         _installer.Attach(_caseServer);
 
         // Register the Secure Channel + Interaction Model unsolicited handlers.
@@ -201,7 +202,9 @@ public sealed class MatterNodeHost : IAsyncDisposable
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
 
         // Reserve a local session id up front so it is held for the session installed on success.
-        var localSessionId = _sessions.AllocateSessionId();
+        // Outbound connects are started here, never by a peer, so stalled inbound handshakes (which a peer
+        // can pile up to MaxPendingHandshakes) must not block them.
+        var localSessionId = _sessions.AllocateSessionId(ignorePendingLimit: true);
         var caseClient = new CaseClient(_caseCrypto, localFabric, localSessionId, _caseResumption);
         _installer.Attach(caseClient);
         try

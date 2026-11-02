@@ -21,20 +21,25 @@ public sealed class InboundMessageDispatcher
     private readonly MessageCounter _unsecuredOutboundCounter;
     private readonly Action<string>? _onMessageDropped;
 
-    // Duplicate/replay detection for the unsecured session (id 0), which carries PASE/CASE before
-    // secure keys exist. The unsecured counter is node-global and may roll over (spec §4.6.2), so the
-    // window is created with rollover allowed. Keyed by the peer's ephemeral source node id (or a
-    // sentinel when the header omits one) so retransmissions from one commissioner are recognised as
-    // duplicates without a second peer's counters colliding.
-    private readonly ConcurrentDictionary<(object Peer, ulong Source), MessageReceptionState> _unsecuredReceptionStates = new();
-
-    // The unsecured session per peer must persist across datagrams: multi-message handshakes (PASE,
-    // and especially CASE) key their per-exchange state to a single session instance via the
-    // ExchangeManager. Minting a fresh session per inbound datagram would strand each handshake step
-    // (Sigma1, the Sigma2 ack, Sigma3) on a different ExchangeContext, so the handshake never advances
-    // and the initiator retransmits forever. Keyed by peer source node id like the reception states.
-    private readonly ConcurrentDictionary<(object Peer, ulong Source), UnsecuredMessageSession> _unsecuredSessions = new();
+    // Per unsecured peer (session id 0, which carries PASE/CASE before secure keys exist), keyed by the
+    // peer's address and ephemeral source node id (or a sentinel when the header omits one):
+    // - the duplicate/replay window. The unsecured counter is node-global and may roll over (spec
+    //   §4.6.2), so the window allows rollover; retransmissions from one commissioner are recognised as
+    //   duplicates without a second peer's counters colliding;
+    // - the unsecured session, which must persist across datagrams: multi-message handshakes (PASE,
+    //   and especially CASE) key their per-exchange state to a single session instance via the
+    //   ExchangeManager. Minting a fresh session per datagram would strand each handshake step (Sigma1,
+    //   the Sigma2 ack, Sigma3) on a different ExchangeContext, so the handshake never advances.
+    // Anyone can send unsecured datagrams with any source id, so the table is bounded (backlog item 8,
+    // I43): a new peer beyond the bound evicts the least recently seen one, whose handshake then starts over.
+    private readonly Dictionary<(object Peer, ulong Source), UnsecuredPeer> _unsecuredPeers = new();
+    private readonly object _unsecuredGate = new();
+    private readonly int _maxUnsecuredPeers;
+    private long _unsecuredClock;
     private const ulong AnonymousPeerKey = 0UL;
+
+    /// <summary>The default bound of unsecured peers (handshakes from distinct address and source id pairs).</summary>
+    public const int DefaultMaxUnsecuredPeers = 128;
 
     /// <param name="sessions">The session table used to resolve secured datagrams.</param>
     /// <param name="exchangeManager">The exchange layer that receives successfully decoded messages.</param>
@@ -49,12 +54,16 @@ public sealed class InboundMessageDispatcher
     /// (malformed, unknown session, bad MIC, or replayed). Intended for troubleshooting only; leave
     /// null in production since the specification requires these drops to stay silent on the wire.
     /// </param>
+    /// <param name="maxUnsecuredPeers">The most unsecured peers tracked at once; the least recently seen is evicted.</param>
     public InboundMessageDispatcher(
         SessionManager sessions,
         ExchangeManager exchangeManager,
         MessageCounter unsecuredOutboundCounter,
-        Action<string>? onMessageDropped = null)
+        Action<string>? onMessageDropped = null,
+        int maxUnsecuredPeers = DefaultMaxUnsecuredPeers)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxUnsecuredPeers, 1);
+        _maxUnsecuredPeers = maxUnsecuredPeers;
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _exchangeManager = exchangeManager ?? throw new ArgumentNullException(nameof(exchangeManager));
         _unsecuredOutboundCounter = unsecuredOutboundCounter ?? throw new ArgumentNullException(nameof(unsecuredOutboundCounter));
@@ -126,7 +135,8 @@ public sealed class InboundMessageDispatcher
             // decoded and returned as a duplicate so the exchange layer re-acks it without reprocessing
             // (spec §4.12.5); a counter too old for the window is dropped outright.
             var peerKey = (replyTransport.PeerIdentity, header.SourceNodeId?.Value ?? AnonymousPeerKey);
-            var reception = _unsecuredReceptionStates.GetOrAdd(peerKey, static _ => new MessageReceptionState(rolloverAllowed: true));
+            var peer = GetUnsecuredPeer(peerKey);
+            var reception = peer.Reception;
             if (!reception.TryAccept(header.MessageCounter, out isDuplicate) && !isDuplicate)
             {
                 _onMessageDropped?.Invoke(
@@ -148,14 +158,17 @@ public sealed class InboundMessageDispatcher
             // Sigma2 to its pending handshake (without it the controller discards Sigma2 and restarts
             // Sigma1 forever). It MUST persist across datagrams so the ExchangeManager keeps one
             // ExchangeContext for the whole handshake.
-            session = _unsecuredSessions.GetOrAdd(
-                peerKey,
-                static (_, args) => new UnsecuredMessageSession(
-                    args.replyTransport,
-                    localNodeId: args.localNodeId,
-                    peerNodeId: args.sourceNodeId,
-                    counter: args.counter),
-                (replyTransport, localNodeId: header.DestinationNodeId, sourceNodeId: header.SourceNodeId, counter: _unsecuredOutboundCounter));
+            UnsecuredMessageSession unsecured;
+            lock (_unsecuredGate)
+            {
+                unsecured = peer.Session ??= new UnsecuredMessageSession(
+                    replyTransport,
+                    localNodeId: header.DestinationNodeId,
+                    peerNodeId: header.SourceNodeId,
+                    counter: _unsecuredOutboundCounter);
+            }
+
+            session = unsecured;
 
             // A cached session is reused across the whole handshake, but its outbound addressing must
             // track the datagram being answered. The anonymous PASE datagrams that first mint the
@@ -163,7 +176,7 @@ public sealed class InboundMessageDispatcher
             // Node ID and supplies the initiator's Source Node ID. Without refreshing, Sigma2 would go
             // out with the stale (absent) Source/Destination Node IDs, so the controller cannot correlate
             // it to its pending handshake, acks it at the MRP layer, and restarts Sigma1 forever (spec §4.4).
-            ((UnsecuredMessageSession)session).RefreshAddressing(header.DestinationNodeId, header.SourceNodeId);
+            unsecured.RefreshAddressing(header.DestinationNodeId, header.SourceNodeId);
             return true;
         }
 
@@ -346,4 +359,41 @@ public sealed class InboundMessageDispatcher
 
     private static bool IsMalformed(Exception ex) =>
         ex is NotSupportedException or ArgumentOutOfRangeException or IndexOutOfRangeException;
+
+    /// <summary>The number of unsecured peers currently tracked.</summary>
+    internal int UnsecuredPeerCount
+    {
+        get { lock (_unsecuredGate) { return _unsecuredPeers.Count; } }
+    }
+
+    private UnsecuredPeer GetUnsecuredPeer((object Peer, ulong Source) key)
+    {
+        lock (_unsecuredGate)
+        {
+            if (!_unsecuredPeers.TryGetValue(key, out var peer))
+            {
+                if (_unsecuredPeers.Count >= _maxUnsecuredPeers)
+                {
+                    var oldest = _unsecuredPeers.MinBy(entry => entry.Value.LastSeen).Key;
+                    _unsecuredPeers.Remove(oldest);
+                    _onMessageDropped?.Invoke("unsecured peer table full: forgot the least recently seen peer");
+                }
+
+                peer = new UnsecuredPeer(new MessageReceptionState(rolloverAllowed: true));
+                _unsecuredPeers[key] = peer;
+            }
+
+            peer.LastSeen = ++_unsecuredClock;
+            return peer;
+        }
+    }
+
+    private sealed class UnsecuredPeer(MessageReceptionState reception)
+    {
+        public MessageReceptionState Reception { get; } = reception;
+
+        public UnsecuredMessageSession? Session { get; set; }
+
+        public long LastSeen { get; set; }
+    }
 }

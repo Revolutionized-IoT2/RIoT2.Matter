@@ -6,6 +6,38 @@ GitHub Packages.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-02
+
+Matter completion ([I43](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/increments/phase-3-4.md#i43-matter-completion-m)): ADR 0010, backlog item 8 and S10. Additive API; hosts that called
+`ControlBridgeService.Create(settings)` now open outbound sessions to bound peers.
+
+- Added: `DnsSdOperationalPeerResolver`, an `IOperationalPeerResolver` that finds a peer's
+  `<compressed-fabric-id>-<node-id>._matter._tcp` instance (browse once, then answer from what it saw
+  or query the instance every second until a 3 s timeout). `ControlBridgeService.Create(settings)`
+  uses it on the bridge's fabric table instead of a resolver that resolved nothing, and disposes it.
+  `MdnsBrowseResolver.ResolveInstanceAsync` queries one instance.
+- Added: `BindingConnectionManager` tries bound peers without a connection again every 30 s
+  (`retryInterval`), so a device that was offline when its binding was written connects later. A
+  resolver or connection failure for one peer (for example an unroutable address) is traced and
+  doesn't stop the others, the retries or the disposal.
+- Security (backlog item 8): `SessionManager` keeps at most `MaxSessions` (64) sessions, evicting the
+  least recently used, and `MaxPendingHandshakes` (32) reserved ids, beyond which `AllocateSessionId`
+  throws `SessionTableFullException` and `CaseServer` answers Sigma1 with Busy. `CaseServer` releases
+  the reserved id of a handshake that fails, is abandoned, or gets no Sigma3 within
+  `CaseServer.HandshakeTimeout` (30 s); it used to keep it for the process lifetime. A commissioning
+  window's PASE id and the host's own outbound connects are not counted against that limit. `InboundMessageDispatcher` keeps at most 128
+  unsecured peers (least recently seen goes first), `ExchangeManager` at most 256 open responder
+  exchanges on unsecured sessions (the oldest is closed), and `MdnsBrowseResolver` at most 256
+  instances, 256 hosts and 16 addresses per host. Terminal Secure Channel replies (Busy, failures,
+  the ignored counter-sync messages) close their exchange.
+- Security (S10): PASE's SPAKE2+ point operations (`P256Curve.Multiply`, `Add`, `Double`, `Negate`)
+  run in the new `P256ConstantTime`: 32-bit limbs in Montgomery form, complete projective addition
+  formulas and a Montgomery ladder, with no branch or memory access that depends on the passcode or the
+  ephemeral scalar. Session, exchange and subscription ids, the commissionable instance id, the host id
+  and the initial data versions come from `RandomNumberGenerator`.
+- Build: `System.Security.Cryptography.Pkcs` 10.0.14 (GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7).
+- Tests: `P256ConstantTimeTests` (against the platform's P-256 and the `BigInteger` reference),
+  `BoundedTablesTests`, `OperationalDiscoveryTests`.
 - Build: `renovate.json` extends the shared Renovate preset ([I33](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/increments/phase-2.md#i33-supply-chain-s)). Renovate opens grouped
   update pull requests once the app is installed (MA7).
 - Release: RIoT2.Matter and the ControlBridge package each get an SPDX SBOM on the GitHub

@@ -49,7 +49,9 @@ public sealed class SecureChannelHandler : IExchangeMessageHandler
                 // counter for group (multicast) messaging: a MsgCounterSyncRsp is secured under the
                 // operational group key, and a request is only triggered by an inbound group message.
                 // Both the group-key security path and the group message reception path are deferred
-                // (the group-cast item), so a node that accepts no group messages correctly drops these.
+                // (the group-cast item), so a node that accepts no group messages correctly drops these,
+                // and closes the exchange, which would otherwise stay open (backlog item 8).
+                exchange.Close();
                 break;
 
             case SecureChannelOpcode.PbkdfParamRequest:
@@ -81,6 +83,7 @@ public sealed class SecureChannelHandler : IExchangeMessageHandler
                 await SendStatusReportAsync(
                     exchange, GeneralStatusCode.Failure, SecureChannelStatusCode.InvalidParameter,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
+                exchange.Close();
                 break;
         }
     }

@@ -1,5 +1,6 @@
-﻿using RIoT2.Matter.Diagnostics;
+using RIoT2.Matter.Diagnostics;
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 
 namespace RIoT2.Matter.Messaging;
 
@@ -13,11 +14,35 @@ public sealed class ExchangeManager : IDisposable
     private readonly ConcurrentDictionary<ExchangeKey, ExchangeContext> _exchanges = new();
     private readonly ConcurrentDictionary<ushort, IExchangeMessageHandler> _unsolicitedHandlers = new();
 
-    // The spec recommends a random initial exchange id; it then increments per new exchange.
-    private int _nextExchangeId = Random.Shared.Next(ushort.MaxValue + 1);
+    // Responder exchanges on unsecured sessions, oldest first: anyone can open them (a new exchange id
+    // per datagram), and one whose peer stops answering never closes on its own, so they are bounded
+    // (backlog item 8, I43). Closed ones are skipped and pruned lazily.
+    private readonly Queue<ExchangeContext> _unsecuredResponders = new();
+    private readonly object _unsecuredGate = new();
+    private readonly int _maxUnsecuredResponders;
 
-    public ExchangeManager(TimeProvider? timeProvider = null)
-        => ReliableMessageManager = new ReliableMessageManager(timeProvider ?? TimeProvider.System);
+    /// <summary>The default bound of open responder exchanges on unsecured sessions.</summary>
+    public const int DefaultMaxUnsecuredResponders = 256;
+
+    // The spec recommends a random initial exchange id; it then increments per new exchange.
+    private int _nextExchangeId = RandomNumberGenerator.GetInt32(ushort.MaxValue + 1); // unpredictable start (S10)
+
+    /// <param name="timeProvider">The clock of the MRP timers.</param>
+    /// <param name="maxUnsecuredResponders">
+    /// The most responder exchanges open on unsecured sessions; one more closes the oldest.
+    /// </param>
+    public ExchangeManager(TimeProvider? timeProvider = null, int maxUnsecuredResponders = DefaultMaxUnsecuredResponders)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxUnsecuredResponders, 1);
+        ReliableMessageManager = new ReliableMessageManager(timeProvider ?? TimeProvider.System);
+        _maxUnsecuredResponders = maxUnsecuredResponders;
+    }
+
+    /// <summary>The number of open responder exchanges on unsecured sessions.</summary>
+    internal int OpenUnsecuredResponders
+    {
+        get { lock (_unsecuredGate) { return _unsecuredResponders.Count(e => !e.IsClosed); } }
+    }
 
     /// <summary>The Message Reliability Protocol manager backing this exchange manager.</summary>
     public ReliableMessageManager ReliableMessageManager { get; }
@@ -75,6 +100,10 @@ public sealed class ExchangeManager : IDisposable
             exchange = new ExchangeContext(
                 this, session, message.Protocol.ExchangeId, message.Protocol.ProtocolId, ExchangeRole.Responder, handler);
             _exchanges[key] = exchange;
+            if (!session.Security.IsSecure)
+            {
+                TrackUnsecuredResponder(exchange);
+            }
         }
 
         await exchange.HandleMessageAsync(message, cancellationToken).ConfigureAwait(false);
@@ -105,6 +134,42 @@ public sealed class ExchangeManager : IDisposable
         => _exchanges.TryRemove(new ExchangeKey(exchange.Session.ExchangeIdentity, exchange.ExchangeId, exchange.Role), out _);
 
     public void Dispose() => ReliableMessageManager.Dispose();
+
+    private void TrackUnsecuredResponder(ExchangeContext exchange)
+    {
+        List<ExchangeContext> evicted = [];
+        lock (_unsecuredGate)
+        {
+            if (_unsecuredResponders.Count >= 2 * _maxUnsecuredResponders)
+            {
+                var open = _unsecuredResponders.Where(e => !e.IsClosed).ToArray();
+                _unsecuredResponders.Clear();
+                foreach (var e in open)
+                {
+                    _unsecuredResponders.Enqueue(e);
+                }
+            }
+
+            int live = _unsecuredResponders.Count(e => !e.IsClosed);
+            while (live >= _maxUnsecuredResponders && _unsecuredResponders.TryDequeue(out var oldest))
+            {
+                if (!oldest.IsClosed)
+                {
+                    evicted.Add(oldest);
+                    live--;
+                }
+            }
+
+            _unsecuredResponders.Enqueue(exchange);
+        }
+
+        // Closing notifies the handler (a handshake releases its session id), so do it outside the lock.
+        foreach (var oldest in evicted)
+        {
+            MatterTrace.Write(() => $"[exchange] too many unsecured exchanges: closing exchange {oldest.ExchangeId}");
+            oldest.Close();
+        }
+    }
 
     private readonly record struct ExchangeKey(object SessionIdentity, ushort ExchangeId, ExchangeRole Role);
 }

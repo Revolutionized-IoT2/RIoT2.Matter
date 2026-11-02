@@ -2,6 +2,7 @@ using System.Buffers;
 using RIoT2.Matter.DataModel;
 using RIoT2.Matter.InteractionModel;
 using RIoT2.Matter.Tlv;
+using System.Security.Cryptography;
 
 namespace RIoT2.Matter.Device;
 
@@ -13,7 +14,7 @@ namespace RIoT2.Matter.Device;
 public abstract class Cluster
 {
     // Per-cluster data version: initialized randomly, bumped on every attribute change, wraps at 2^32.
-    private uint _dataVersion = unchecked((uint)Random.Shared.NextInt64());
+    private uint _dataVersion = BitConverter.ToUInt32(RandomNumberGenerator.GetBytes(sizeof(uint)));
 
     // Bound when the cluster is attached to an endpoint that belongs to a node; null until then.
     private IEventSink? _eventSink;
