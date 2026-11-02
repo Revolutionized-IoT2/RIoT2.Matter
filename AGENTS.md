@@ -163,7 +163,7 @@ The orchestrator currently consumes `RIoT2.Matter` and `RIoT2.Matter.ControlBrid
 - [M3](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/plans/m03-split-oversized-classes.md):
   split oversized Matter bridge service in the orchestrator.
 - [M8](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/plans/m08-dotnet10-migration.md):
-  completed the target-framework migration; nullable and threading-analyzer practice steps remain
-  open.
+  completed the target-framework migration; nullable reference types (I32) and the threading
+  analyzers (I31) fail CI on a warning.
 - [M9](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/plans/m09-ci-cd.md):
   reusable CI/CD workflow work.

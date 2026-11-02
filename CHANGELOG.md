@@ -6,6 +6,8 @@ GitHub Packages.
 
 ## [Unreleased]
 
+- Build: the shared `Directory.Build.props` sets `Nullable=enable` for every project ([I32](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/increments/phase-2.md#i32-nullable-reference-types-m)).
+  The projects here already had it, so nothing changes.
 - Build: the threading analyzers ([I31](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/increments/phase-2.md#i31-async-cleanup-part-2-and-threading-analyzers-m)) run in every project from the shared
   `Directory.Build.props` and `.editorconfig`: a blocking wait, `async void` or an unobserved task
   fails the CI build. No change to the shipped binaries. `UiSubscriptionPump` discards the pump task it keeps

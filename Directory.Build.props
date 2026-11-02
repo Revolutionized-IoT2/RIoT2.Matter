@@ -8,6 +8,9 @@
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Nullable reference types everywhere (plan M8 step 9, I32). Serializer-populated models may turn
+         CS8618 off for their folder in a nested .editorconfig; see build/README.md. -->
+    <Nullable>enable</Nullable>
     <Deterministic>true</Deterministic>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
