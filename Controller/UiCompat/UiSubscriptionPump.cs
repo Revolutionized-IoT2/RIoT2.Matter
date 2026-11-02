@@ -35,7 +35,8 @@ public sealed class UiSubscriptionPump : IAsyncDisposable
     /// </summary>
     public void EnsureSubscribed(NodeId nodeId, ushort endpoint = 1)
     {
-        _pumps.GetOrAdd(nodeId.Value, _ => Task.Run(() => PumpAsync(nodeId, endpoint, _shutdown.Token)));
+        // The pump task is kept in _pumps and awaited on shutdown.
+        _ = _pumps.GetOrAdd(nodeId.Value, _ => Task.Run(() => PumpAsync(nodeId, endpoint, _shutdown.Token)));
     }
 
     private async Task PumpAsync(NodeId nodeId, ushort endpoint, CancellationToken cancellationToken)

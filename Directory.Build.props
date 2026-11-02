@@ -29,6 +29,13 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <!-- Threading analyzers in every project (plan M8 step 10, I31). .editorconfig turns on the rules that
+       keep plan M11 from regressing: VSTHRD002 (synchronous wait), VSTHRD100/VSTHRD101 (async void),
+       VSTHRD110 (unobserved task). Analyzer only: it adds no package dependency. -->
+  <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' == 'true'">
+    <GlobalPackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.12.1" />
+  </ItemGroup>
+
   <!-- Repository-specific settings live in Directory.Build.repo.props, so this file stays identical. -->
   <Import Project="$(MSBuildThisFileDirectory)Directory.Build.repo.props"
           Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.repo.props')" />

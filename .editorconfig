@@ -69,10 +69,38 @@ dotnet_diagnostic.CA1806.severity = suggestion
 dotnet_diagnostic.CA1816.severity = suggestion
 dotnet_diagnostic.CA2201.severity = suggestion
 
-# Async: cancellation forwarding and fire-and-forget ValueTasks are covered by M11, which turns on
-# the threading analyzers.
+# Async: cancellation forwarding and fire-and-forget ValueTasks stay suggestions.
 dotnet_diagnostic.CA2012.severity = suggestion
 dotnet_diagnostic.CA2016.severity = suggestion
+
+# Threading analyzers (Directory.Build.props; plan M8 step 10, I31). Warnings, so errors in CI: no
+# blocking waits, no async void, no unobserved tasks. Suppress one only with a reason, in a
+# #pragma around the line (plan M11 group A: synchronous shims of a synchronous contract).
+dotnet_diagnostic.VSTHRD002.severity = warning
+dotnet_diagnostic.VSTHRD100.severity = warning
+dotnet_diagnostic.VSTHRD101.severity = warning
+dotnet_diagnostic.VSTHRD110.severity = warning
+# The rest are Visual Studio main-thread rules or style (the Async suffix); off.
+dotnet_diagnostic.VSTHRD001.severity = none
+dotnet_diagnostic.VSTHRD003.severity = none
+dotnet_diagnostic.VSTHRD004.severity = none
+dotnet_diagnostic.VSTHRD010.severity = none
+dotnet_diagnostic.VSTHRD011.severity = none
+dotnet_diagnostic.VSTHRD012.severity = none
+dotnet_diagnostic.VSTHRD102.severity = none
+dotnet_diagnostic.VSTHRD103.severity = none
+dotnet_diagnostic.VSTHRD104.severity = none
+dotnet_diagnostic.VSTHRD105.severity = none
+dotnet_diagnostic.VSTHRD106.severity = none
+dotnet_diagnostic.VSTHRD107.severity = none
+dotnet_diagnostic.VSTHRD108.severity = none
+dotnet_diagnostic.VSTHRD109.severity = none
+dotnet_diagnostic.VSTHRD111.severity = none
+dotnet_diagnostic.VSTHRD112.severity = none
+dotnet_diagnostic.VSTHRD113.severity = none
+dotnet_diagnostic.VSTHRD114.severity = none
+dotnet_diagnostic.VSTHRD115.severity = none
+dotnet_diagnostic.VSTHRD200.severity = none
 
 # Windows-only CommunityToolkit.Mvvm hint (Mobile): [ObservableProperty] fields should become
 # partial properties for WinRT AOT. The Windows head is not shipped; Android is unaffected.

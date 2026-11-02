@@ -6,6 +6,10 @@ GitHub Packages.
 
 ## [Unreleased]
 
+- Build: the threading analyzers ([I31](https://github.com/Revolutionized-IoT2/.github/blob/main/docs/increments/phase-2.md#i31-async-cleanup-part-2-and-threading-analyzers-m)) run in every project from the shared
+  `Directory.Build.props` and `.editorconfig`: a blocking wait, `async void` or an unobserved task
+  fails the CI build. No change to the shipped binaries. `UiSubscriptionPump` discards the pump task it keeps
+  in its dictionary explicitly.
 - CI: `validate.yml` and `main.yml` were replaced by `ci.yml` and `release.yml`, which call the
   reusable workflows in the `.github` hub. The checks are the same (Linux and Windows, Controller
   UI, package smoke test), plus a secret scan.
