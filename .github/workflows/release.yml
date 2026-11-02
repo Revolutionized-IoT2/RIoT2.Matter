@@ -8,7 +8,8 @@ on:
     tags: ["*.*.*"]
 
 permissions:
-  contents: read
+  # write: the package jobs attach their SBOMs to the GitHub release of the tag.
+  contents: write
   packages: write
 
 jobs:
