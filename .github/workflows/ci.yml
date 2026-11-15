@@ -42,3 +42,17 @@ jobs:
 
   secret-scan:
     uses: Revolutionized-IoT2/.github/.github/workflows/secret-scan.yml@main
+
+  # Opens this repository's "ci-red" issue when CI fails on the default branch, and closes it when
+  # CI passes again (docs/guides/ci.md in Revolutionized-IoT2/.github). Not a required check.
+  alert:
+    needs: [dotnet, controller-ui, pack-matter, pack-controlbridge, secret-scan]
+    if: >-
+      always() && !contains(needs.*.result, 'cancelled') && github.event_name != 'pull_request' &&
+      (github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch)
+    uses: Revolutionized-IoT2/.github/.github/workflows/ci-alert.yml@main
+    permissions:
+      actions: read
+      issues: write
+    with:
+      result: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
